@@ -8,10 +8,11 @@
   </head>
   <body>
     <div id="stage">
-      <div class="veil"></div>
-      <div class="caustic"></div>
-      <div class="filament"></div>
-      <div class="pearl"></div>
+      <div class="bloom"></div>
+      <div class="bridge"></div>
+      <div class="pearl remote"></div>
+      <div class="packet"></div>
+      <div class="pearl local"></div>
     </div>
     <script>
       const stage = document.getElementById('stage')
@@ -26,7 +27,7 @@
         if (kind === 'recv') stage.classList.add('recv')
         stage.classList.add('play')
         window.clearTimeout(clearPlay)
-        clearPlay = window.setTimeout(() => stage.classList.remove('play'), 1300)
+        clearPlay = window.setTimeout(() => stage.classList.remove('play'), 1600)
       }
 
       function parse(token) {
@@ -35,6 +36,8 @@
         const [fly, kind] = raw.split('-')
         play(fly, kind)
       }
+
+      window.play = play
 
       window.addEventListener('message', (e) => {
         const d = e.data

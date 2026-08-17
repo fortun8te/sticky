@@ -1,4 +1,15 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  globalShortcut,
+  ipcMain,
+  nativeImage,
+  powerMonitor,
+  screen,
+  systemPreferences
+} from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { watch } from 'chokidar'
@@ -7,17 +18,22 @@ import { resolveSyncDir, syncHistoryFile } from './sync'
 import { writeFiles, writePlainText } from './clipboard'
 import { injectPaste, pollLastTarget, refreshMacTarget, type LastTarget } from './inject'
 import { StickyPeer, flyFor, packFiles, unpackFiles, type DropPayload } from './peer'
+import { applyAutostart, autostartEnabled, ensureAutostart } from './autostart'
 import type { StickyStatus } from '../shared/types'
 
-const BAR_W = 288
-const BAR_H = 52
+const BAR_W = 312
+const BAR_H_MAC = 36
+const BAR_H_WIN = 52
 const BAR_GAP = 14
-const MAC_BOTTOM_TURF = 120
-const FX_MS = 1400
+const FX_MS = 1600
 
 const isMac = process.platform === 'darwin'
 const isWin = process.platform === 'win32'
 const device = isWin ? 'windows' : isMac ? 'macos' : 'linux'
+
+function barH(): number {
+  return isMac ? BAR_H_MAC : BAR_H_WIN
+}
 
 const TRAY_PNG_32 =
   'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAWklEQVR42u3WwQkAIAxDUVfo/mMKetQJFFstFfoDPeedNKUQchgRGZp7XtpbVd01xlK6w4SVmxC5AR7lKgQAAABu3/3VAQDg+h88X0kAtAi3kRo6Sr+Y5SRFJnD6O+eYovGQAAAAAElFTkSuQmCC'
@@ -43,16 +59,30 @@ function posPath(): string {
   return join(app.getPath('userData'), 'pos.json')
 }
 
-function defaultBarPos(display = screen.getPrimaryDisplay()): { x: number; y: number } {
+function macLaptopDisplay(): Electron.Display {
+  return screen.getAllDisplays().find((d) => d.internal) ?? screen.getPrimaryDisplay()
+}
+
+function defaultBarPos(display = isMac ? macLaptopDisplay() : screen.getPrimaryDisplay()): {
+  x: number
+  y: number
+} {
+  if (isMac) {
+    const b = display.bounds
+    return {
+      x: Math.round(b.x + (b.width - BAR_W) / 2),
+      y: b.y
+    }
+  }
   const wa = display.workArea
-  const x = Math.round(wa.x + (wa.width - BAR_W) / 2)
-  const y = isMac
-    ? Math.round(wa.y + BAR_GAP)
-    : Math.round(wa.y + wa.height - BAR_H - BAR_GAP)
-  return { x, y }
+  return {
+    x: Math.round(wa.x + (wa.width - BAR_W) / 2),
+    y: Math.round(wa.y + wa.height - barH() - BAR_GAP)
+  }
 }
 
 function loadBarPos(): { x: number; y: number } {
+  if (isMac) return defaultBarPos()
   const fallback = defaultBarPos()
   try {
     const file = posPath()
@@ -60,12 +90,19 @@ function loadBarPos(): { x: number; y: number } {
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as { x?: unknown; y?: unknown }
     if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number') return fallback
     const saved = { x: Math.round(parsed.x), y: Math.round(parsed.y) }
-    const display = screen.getDisplayMatching({ x: saved.x, y: saved.y, width: BAR_W, height: BAR_H })
+    const display = screen.getDisplayMatching({
+      x: saved.x,
+      y: saved.y,
+      width: BAR_W,
+      height: barH()
+    })
     const b = display.workArea
     const onScreen =
-      saved.x + BAR_W > b.x && saved.x < b.x + b.width && saved.y + BAR_H > b.y && saved.y < b.y + b.height
+      saved.x + BAR_W > b.x &&
+      saved.x < b.x + b.width &&
+      saved.y + barH() > b.y &&
+      saved.y < b.y + b.height
     if (!onScreen) return defaultBarPos(display)
-    if (isMac && saved.y >= b.y + b.height - MAC_BOTTOM_TURF) return defaultBarPos(display)
     return saved
   } catch {
     return fallback
@@ -127,18 +164,17 @@ function barDisplay(): Electron.Display {
   return screen.getDisplayMatching(win.getBounds())
 }
 
-function fxSrc(hash?: string): { dev: string; file: string; hash?: string } {
-  const h = hash ? `#${hash}` : ''
+function fxSrc(): { dev: string; file: string } {
   const file = join(__dirname, '../renderer/fx.html')
   const base = (process.env.ELECTRON_RENDERER_URL ?? '').replace(/\/$/, '')
-  return { dev: base ? `${base}/fx.html${h}` : '', file, hash }
+  return { dev: base ? `${base}/fx.html` : '', file }
 }
 
-function loadFx(hash?: string): Promise<void> {
+function loadFx(): Promise<void> {
   if (!fx || fx.isDestroyed()) return Promise.resolve()
-  const src = fxSrc(hash)
+  const src = fxSrc()
   if (src.dev) return fx.loadURL(src.dev).then(() => undefined)
-  return fx.loadFile(src.file, hash ? { hash } : undefined).then(() => undefined)
+  return fx.loadFile(src.file).then(() => undefined)
 }
 
 function keepFxClickThrough(): void {
@@ -177,7 +213,8 @@ function createFxWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      backgroundThrottling: true
     }
   })
   keepFxClickThrough()
@@ -194,38 +231,56 @@ function playFx(kind: 'send' | 'recv'): void {
   const bounds = barDisplay().bounds
   fx.setBounds(bounds)
   keepFxClickThrough()
-  const hash = `${flyFor(kind)}-${kind}`
-  void loadFx(hash).then(() => {
+  const fly = flyFor(kind)
+  const run = () => {
     if (!fx || fx.isDestroyed()) return
     keepFxClickThrough()
     fx.showInactive()
     keepFxClickThrough()
+    void fx.webContents.executeJavaScript(`play(${JSON.stringify(fly)}, ${JSON.stringify(kind)})`)
     if (fxTimer) clearTimeout(fxTimer)
     fxTimer = setTimeout(() => {
       fxTimer = null
-      if (fx && !fx.isDestroyed()) fx.hide()
+      if (!fx || fx.isDestroyed()) return
+      fx.hide()
+      fx.destroy()
+      fx = null
     }, FX_MS)
-  })
-}
-
-function floatBar(): void {
-  try {
-    win?.setAlwaysOnTop(true, 'floating')
-  } catch {
-    /* stay floating, do not steal focus */
+  }
+  if (fx.webContents.isLoading()) {
+    fx.webContents.once('did-finish-load', run)
+  } else {
+    run()
   }
 }
 
-async function sendPeer(kind: 'text' | 'files', text?: string, paths?: string[]): Promise<void> {
-  if (!peer) return
+function floatBar(): void {
+  if (!win || win.isDestroyed()) return
   try {
-    await peer.send({
-      kind,
-      text,
-      files: paths?.length ? packFiles(paths) : []
-    })
+    win.setAlwaysOnTop(true, isMac ? 'screen-saver' : 'floating')
   } catch {
-    /* local drop still succeeded */
+    try {
+      win.setAlwaysOnTop(true, isMac ? 'pop-up-menu' : 'floating')
+    } catch {
+      win.setAlwaysOnTop(true)
+    }
+  }
+}
+
+function snapMacNotch(): void {
+  if (!isMac || !win || win.isDestroyed()) return
+  floatBar()
+  const pos = defaultBarPos()
+  win.setBounds({ x: pos.x, y: pos.y, width: BAR_W, height: barH() })
+}
+
+async function sendPeer(kind: 'text' | 'files', text?: string, paths?: string[]): Promise<boolean> {
+  if (!peer?.other()) return false
+  try {
+    const files = paths?.length ? packFiles(paths) : []
+    return (await peer.send({ kind, text, files })) === true
+  } catch {
+    return false
   }
 }
 
@@ -237,6 +292,7 @@ async function dropText(text: string): Promise<{ ok: boolean; message: string }>
     store.upsert(clip)
     const injected = await injectPaste(win, lastTarget)
     floatBar()
+    snapMacNotch()
     const label = dropLabel('text', clip.text)
     void sendPeer('text', clip.text)
     fireHandoff('send', label)
@@ -258,6 +314,7 @@ async function dropFiles(paths: string[]): Promise<{ ok: boolean; message: strin
     store.upsert(clip)
     const injected = await injectPaste(win, lastTarget)
     floatBar()
+    snapMacNotch()
     const label = dropLabel('files', undefined, clip.files)
     void sendPeer('files', undefined, clip.files)
     fireHandoff('send', label)
@@ -278,6 +335,9 @@ async function receiveDrop(payload: DropPayload): Promise<void> {
       await writeFiles(files)
       await injectPaste(win, lastTarget)
       floatBar()
+      snapMacNotch()
+      const clip = makeFileClip(files, device)
+      if (clip) store.upsert(clip)
       fireHandoff('recv', dropLabel('files', undefined, files))
     } else {
       const text = payload.text ?? ''
@@ -285,6 +345,9 @@ async function receiveDrop(payload: DropPayload): Promise<void> {
       await writePlainText(text)
       await injectPaste(win, lastTarget)
       floatBar()
+      snapMacNotch()
+      const clip = makeTextClip(text, device)
+      if (clip) store.upsert(clip)
       fireHandoff('recv', dropLabel('text', text))
     }
     emit()
@@ -297,20 +360,21 @@ function createWindow(): void {
   const pos = loadBarPos()
   win = new BrowserWindow({
     width: BAR_W,
-    height: BAR_H,
+    height: barH(),
     x: pos.x,
     y: pos.y,
     frame: false,
     transparent: true,
     resizable: false,
-    movable: true,
+    movable: !isMac,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    show: true,
     hasShadow: false,
-    roundedCorners: false,
+    roundedCorners: isMac,
     backgroundColor: '#00000000',
     title: 'Sticky',
     webPreferences: {
@@ -319,13 +383,24 @@ function createWindow(): void {
         : join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: true
     }
   })
 
-  win.setAlwaysOnTop(true, 'floating')
+  floatBar()
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  win.setIgnoreMouseEvents(false, { forward: true })
+  if (isMac) {
+    win.setWindowButtonVisibility(false)
+    win.setIgnoreMouseEvents(false)
+    try {
+      win.setHiddenInMissionControl(true)
+    } catch {
+      /* older electron */
+    }
+  } else {
+    win.setIgnoreMouseEvents(false, { forward: true })
+  }
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -333,7 +408,21 @@ function createWindow(): void {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  win.on('moved', () => saveBarPos())
+  snapMacNotch()
+  win.once('ready-to-show', () => {
+    snapMacNotch()
+    win?.showInactive()
+  })
+  win.webContents.once('did-finish-load', () => snapMacNotch())
+
+  win.on('moved', () => {
+    if (isMac) {
+      const pos = defaultBarPos()
+      win?.setPosition(pos.x, pos.y)
+      return
+    }
+    saveBarPos()
+  })
 
   win.on('blur', () => {
     lastTarget = pollLastTarget(win, lastTarget)
@@ -385,6 +474,32 @@ function hideSticky(): void {
   win?.hide()
 }
 
+function paintTray(): void {
+  if (!tray) return
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show Sticky', click: () => showSticky() },
+      {
+        label: 'Open at login',
+        type: 'checkbox',
+        checked: autostartEnabled(),
+        click: (item) => {
+          applyAutostart(item.checked)
+          paintTray()
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit Sticky',
+        click: () => {
+          quitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+}
+
 function createTray(): void {
   try {
     const img = trayIcon()
@@ -392,19 +507,7 @@ function createTray(): void {
     tray = new Tray(icon)
     if (isMac) tray.setTitle('S')
     tray.setToolTip('Sticky')
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Show Sticky', click: () => showSticky() },
-        { type: 'separator' },
-        {
-          label: 'Quit',
-          click: () => {
-            quitting = true
-            app.quit()
-          }
-        }
-      ])
-    )
+    paintTray()
     tray.on('click', () => showSticky())
   } catch {
     tray = null
@@ -436,7 +539,7 @@ function wireIpc(): void {
   })
   ipcMain.on('sticky:hide', () => hideSticky())
   ipcMain.on('sticky:clickThrough', (_e, on: boolean) => {
-    if (!win || win.isDestroyed()) return
+    if (!win || win.isDestroyed() || isMac) return
     win.setIgnoreMouseEvents(Boolean(on), { forward: true })
   })
 }
@@ -444,22 +547,51 @@ function wireIpc(): void {
 if (isWin) app.setAppUserModelId('app.sticky.drop')
 app.setName('Sticky')
 
+const locked = app.requestSingleInstanceLock()
+if (!locked) {
+  app.quit()
+} else {
+  app.on('second-instance', () => showSticky())
+}
+
 app.whenReady().then(() => {
+  if (!locked) return
+  if (isMac) {
+    app.dock?.hide()
+    try {
+      app.setActivationPolicy('accessory')
+    } catch {
+      /* older electron */
+    }
+    try {
+      systemPreferences.isTrustedAccessibilityClient(true)
+    } catch {
+      /* prompt if we can */
+    }
+  }
   store = new HistoryStore(historyPath())
   peer = new StickyPeer((payload) => {
     void receiveDrop(payload)
   })
   peer.start()
   createWindow()
-  createFxWindow()
   createTray()
   wireIpc()
-  if (app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: false })
-  }
+  ensureAutostart()
+  paintTray()
 
   globalShortcut.register(isMac ? 'Command+Shift+V' : 'Control+Shift+V', () => {
     showSticky()
+  })
+
+  screen.on('display-metrics-changed', () => {
+    snapMacNotch()
+  })
+
+  powerMonitor.on('suspend', () => peer?.sleep())
+  powerMonitor.on('resume', () => {
+    peer?.wake()
+    snapMacNotch()
   })
 
   let lastEmit = ''
@@ -479,15 +611,14 @@ app.whenReady().then(() => {
     } catch {
       /* keep polling */
     }
-  }, 400)
+  }, 2000)
 
   const file = historyPath()
-  watch(file, { ignoreInitial: true }).on('change', () => emit())
+  watch(file, { ignoreInitial: true, usePolling: false }).on('change', () => emit())
 
   app.on('activate', () => {
     if (!win || win.isDestroyed()) createWindow()
     else showSticky()
-    createFxWindow()
   })
 })
 
@@ -498,8 +629,7 @@ app.on('before-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (isMac) return
-  if (quitting || !tray) app.quit()
+  if (quitting) app.quit()
 })
 
 app.on('will-quit', () => {

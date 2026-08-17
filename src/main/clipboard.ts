@@ -134,7 +134,11 @@ export async function writeFiles(paths: string[]): Promise<void> {
     try {
       await writeMacFileUrls(posix)
     } catch {
-      await writeMacFileUrlsFallback(posix)
+      try {
+        await writeMacFileUrlsFallback(posix)
+      } catch {
+        clipboard.writeText(posix.join('\n'), 'clipboard')
+      }
     }
     return
   }

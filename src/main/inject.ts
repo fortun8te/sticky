@@ -270,6 +270,7 @@ function isStickyMacProcess(name: string): boolean {
 
 let macCached: LastTarget | null = null
 let macRefresh: Promise<LastTarget | null> | null = null
+let macAuthBadUntil = 0
 
 export function pollLastTarget(win: BrowserWindow | null, current: LastTarget | null): LastTarget | null {
   try {
@@ -301,6 +302,7 @@ export async function refreshMacTarget(current: LastTarget | null): Promise<Last
 }
 
 async function queryMacFrontmost(current: LastTarget | null): Promise<LastTarget | null> {
+  if (Date.now() < macAuthBadUntil) return macCached ?? current
   try {
     const { stdout } = await execFileAsync(
       'osascript',
@@ -326,6 +328,7 @@ async function queryMacFrontmost(current: LastTarget | null): Promise<LastTarget
     macCached = next
     return next
   } catch {
+    macAuthBadUntil = Date.now() + 12_000
     return current
   }
 }
@@ -340,16 +343,9 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
       const h = asHwnd(target.id)
       if (!h || !api.IsWindow(h) || isOurHwnd(api, win, h)) return false
       if (!focusHwnd(api, h)) return false
-      await delay(80)
-      const fg = asHwnd(api.GetForegroundWindow())
-      if (isOurHwnd(api, win, h) || (fg && isOurHwnd(api, win, fg))) return false
-      const injected = sendCtrlVNative(api) || (await sendCtrlVPowershell())
-      try {
-        win?.setAlwaysOnTop(true, 'floating')
-      } catch {
-        /* ignore */
-      }
-      return injected
+      await delay(110)
+      if (!api.IsWindow(h)) return false
+      return sendCtrlVNative(api) || (await sendCtrlVPowershell())
     } catch {
       return false
     }
@@ -358,7 +354,7 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
   if (process.platform === 'darwin') {
     try {
       // pid + name are argv — never interpolated into the script
-      await execFileAsync(
+      const { stderr } = await execFileAsync(
         'osascript',
         [
           '-e',
@@ -392,11 +388,7 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
         ],
         { encoding: 'utf8', timeout: 5000 }
       )
-      try {
-        win?.setAlwaysOnTop(true, 'floating')
-      } catch {
-        /* ignore */
-      }
+      if (macAccessibilityDenied(stderr)) return false
       return true
     } catch {
       return false
@@ -404,6 +396,17 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
   }
 
   return false
+}
+
+function macAccessibilityDenied(stderr: string | undefined): boolean {
+  const s = (stderr ?? '').toLowerCase()
+  if (!s.trim()) return false
+  return (
+    s.includes('not allowed') ||
+    s.includes('1002') ||
+    s.includes('-1743') ||
+    s.includes('accessibility')
+  )
 }
 
 function delay(ms: number): Promise<void> {

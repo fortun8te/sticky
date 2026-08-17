@@ -65,8 +65,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
+        "LSUIElement": true,
         "NSAppleEventsUsageDescription": "Sticky pastes into the last app you used.",
-        "NSAccessibilityUsageDescription": "Sticky pastes into the last app you used."
+        "NSAccessibilityUsageDescription": "Sticky pastes into the last app you used.",
+        "NSLocalNetworkUsageDescription": "Sticky finds the other pill on your Wi-Fi so Mac and Windows can hand off drops."
       },
       "artifactName": "Sticky-${version}-mac-${arch}.${ext}"
     },
@@ -74,7 +76,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
     }
   }
 }

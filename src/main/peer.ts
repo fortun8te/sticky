@@ -1,6 +1,6 @@
 import dgram from 'node:dgram'
 import http from 'node:http'
-import { hostname, tmpdir } from 'node:os'
+import { hostname, networkInterfaces, tmpdir } from 'node:os'
 import {
   existsSync,
   mkdirSync,
@@ -33,9 +33,12 @@ export interface DropPayload {
   from: Role
 }
 
-const UDP_PORT = 47831
-const HTTP_PORT = 47832
+export const UDP_PORT = 47831
+export const HTTP_PORT = 47832
 const MAX_BYTES = 48 * 1024 * 1024
+const LIVE_MS = 14000
+const BEAT_FAST_MS = 2000
+const BEAT_SLOW_MS = 5000
 
 export function ourRole(): Role {
   return process.platform === 'win32' ? 'above' : 'below'
@@ -45,6 +48,25 @@ export function flyFor(kind: 'send' | 'recv'): Fly {
   const role = ourRole()
   if (role === 'above') return kind === 'send' ? 'down' : 'up'
   return kind === 'send' ? 'up' : 'down'
+}
+
+function ipv4(host: string): string {
+  return host.replace(/^::ffff:/i, '')
+}
+
+function broadcastTargets(): string[] {
+  const out = new Set<string>(['255.255.255.255'])
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      const family = String(a.family)
+      if (a.internal || (family !== 'IPv4' && family !== '4')) continue
+      const ip = a.address.split('.').map(Number)
+      const mask = (a.netmask || '255.255.255.0').split('.').map(Number)
+      if (ip.length !== 4 || mask.length !== 4) continue
+      out.add(ip.map((octet, i) => octet | (~mask[i] & 255)).join('.'))
+    }
+  }
+  return [...out]
 }
 
 function collectFiles(paths: string[]): { rel: string; abs: string; size: number }[] {
@@ -92,6 +114,8 @@ export class StickyPeer {
   private udp = dgram.createSocket({ type: 'udp4', reuseAddr: true })
   private server: http.Server | null = null
   private beat: NodeJS.Timeout | null = null
+  private beatMs = BEAT_FAST_MS
+  private asleep = false
 
   constructor(private onDrop: (payload: DropPayload, host: string) => void) {}
 
@@ -121,7 +145,7 @@ export class StickyPeer {
               res.end()
               return
             }
-            this.onDrop(payload, req.socket.remoteAddress || '')
+            this.onDrop(payload, ipv4(req.socket.remoteAddress || ''))
             res.writeHead(204)
             res.end()
           } catch {
@@ -135,55 +159,106 @@ export class StickyPeer {
       res.end()
     })
     this.server.listen(HTTP_PORT, '0.0.0.0')
+    this.server.on('error', () => {
+      /* port busy — existing instance owns LAN */
+    })
+
+    this.udp.on('error', () => {
+      /* bind failed — existing instance owns LAN */
+    })
 
     this.udp.on('message', (msg, rinfo) => {
       try {
         const info = JSON.parse(msg.toString('utf8')) as PeerInfo
         if (!info?.id || info.id === this.id) return
-        this.peers.set(info.id, { ...info, host: rinfo.address, seen: Date.now() })
+        this.peers.set(info.id, {
+          ...info,
+          host: ipv4(rinfo.address),
+          port: info.port || HTTP_PORT,
+          seen: Date.now()
+        })
       } catch {
         /* ignore */
       }
     })
-    this.udp.bind(UDP_PORT, () => {
+    this.udp.bind(UDP_PORT, '0.0.0.0', () => {
       try {
         this.udp.setBroadcast(true)
       } catch {
         /* ignore */
       }
+      this.announce()
+      this.armBeat()
     })
+  }
 
-    this.beat = setInterval(() => this.announce(), 1200)
+  sleep(): void {
+    this.asleep = true
+    if (this.beat) clearInterval(this.beat)
+    this.beat = null
+  }
+
+  wake(): void {
+    this.asleep = false
     this.announce()
+    this.armBeat()
   }
 
   stop(): void {
-    if (this.beat) clearInterval(this.beat)
-    this.udp.close()
+    this.sleep()
+    this.asleep = false
+    try {
+      this.udp.close()
+    } catch {
+      /* ignore */
+    }
     this.server?.close()
+    this.server = null
   }
 
   other(): PeerInfo | null {
     const now = Date.now()
-    const live = [...this.peers.values()].filter((p) => now - p.seen < 4000)
-    const opposite = live.find((p) => p.role !== this.role)
-    return opposite || live[0] || null
+    const live = [...this.peers.values()].filter((p) => now - p.seen < LIVE_MS)
+    return live.find((p) => p.role !== this.role) || null
   }
 
   async send(payload: Omit<DropPayload, 'id' | 'from'>): Promise<boolean> {
     const peer = this.other()
     if (!peer) return false
     const body = JSON.stringify({ ...payload, id: this.id, from: this.role } satisfies DropPayload)
-    const url = `http://${peer.host}:${peer.port || HTTP_PORT}/drop`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body
-    })
-    return res.ok || res.status === 204
+    const host = ipv4(peer.host)
+    const url = `http://${host}:${peer.port || HTTP_PORT}/drop`
+    for (let i = 0; i < 3; i++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+          signal: AbortSignal.timeout(8000)
+        })
+        if (res.ok || res.status === 204) return true
+      } catch {
+        await new Promise((r) => setTimeout(r, 120 * (i + 1)))
+      }
+    }
+    return false
+  }
+
+  private armBeat(): void {
+    if (this.asleep) return
+    const ms = this.other() ? BEAT_SLOW_MS : BEAT_FAST_MS
+    if (this.beat && this.beatMs === ms) return
+    if (this.beat) clearInterval(this.beat)
+    this.beatMs = ms
+    this.beat = setInterval(() => {
+      if (this.asleep) return
+      this.announce()
+      this.armBeat()
+    }, ms)
   }
 
   private announce(): void {
+    if (this.asleep) return
     const info: PeerInfo = {
       id: this.id,
       host: '',
@@ -194,7 +269,17 @@ export class StickyPeer {
       seen: Date.now()
     }
     const buf = Buffer.from(JSON.stringify(info))
-    for (const ip of ['255.255.255.255', '10.255.255.255', '192.168.255.255']) {
+    const known = this.other()
+    const targets = new Set<string>()
+    if (known?.host) {
+      targets.add(ipv4(known.host))
+    } else {
+      for (const ip of broadcastTargets()) targets.add(ip)
+      for (const p of this.peers.values()) {
+        if (p.host) targets.add(ipv4(p.host))
+      }
+    }
+    for (const ip of targets) {
       try {
         this.udp.send(buf, UDP_PORT, ip)
       } catch {
@@ -203,5 +288,3 @@ export class StickyPeer {
     }
   }
 }
-
-export { relative }
