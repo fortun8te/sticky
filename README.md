@@ -1,19 +1,25 @@
 # Sticky
 
-Always-on paste drop for Windows and Mac. Paste or drop files here, Sticky overwrites the clipboard with a clean payload, then drops it into the last app you clicked. History syncs through iCloud so going back to the other machine still has your clips.
+Tiny Wispr-style paste pill for Windows + Mac. Type, paste, or drop files/folders into it. It overwrites the clipboard, pastes into the last app you clicked, and AirDrops to the other machine’s pill.
+
+Windows monitor sits **above** the MacBook, so:
+
+- Windows pill docks at the **bottom** (facing the Mac)
+- Mac pill docks at the **top** (facing Windows — Wispr Flow keeps the Mac bottom)
+
+Handoff uses the local network (UDP 47831 / HTTP 47832). Same Wi‑Fi. Allow the firewall prompt.
 
 ## Use it
 
-1. Click the field you want in Slack, Notes, Finder, Explorer, whatever.
-2. Paste into Sticky, or drop files onto it.
-3. Sticky copies clean Unicode text (or the files) and pastes into that last field.
+1. Click a field in Slack / Notes / Finder / Explorer.
+2. Type, paste, or drop files/folders into the pill.
+3. Enter sends. The other pill catches it with an AirDrop-style fly.
 
-- `Ctrl+Shift+V` / `⌘⇧V` shows Sticky
-- Click a history row to drop it again
-- Star pins a clip
-- iCloud Drive folder `Sticky/history.json` is the Mac ↔ Windows handoff
+- `Ctrl+Shift+V` / `⌘⇧V` shows the pill
+- Hover the bar to interact; empty chrome clicks through
+- Quit from the tray
 
-On Mac, grant **Accessibility** and **Automation** (System Events) when prompted so paste-into-last-app works. If it doesn’t, add Sticky under System Settings → Privacy & Security → Accessibility, and allow it to control System Events under Privacy & Security → Automation.
+On Mac: grant **Accessibility** + **Automation** (System Events). Add Sticky under System Settings → Privacy & Security → Accessibility.
 
 ## Dev
 
@@ -21,10 +27,3 @@ On Mac, grant **Accessibility** and **Automation** (System Events) when prompted
 npm install
 npm run dev
 ```
-
-```bash
-npm run dist:win
-npm run dist:mac
-```
-
-Installs itself at login. Quit from the tray.

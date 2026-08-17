@@ -16,6 +16,8 @@ export interface StickyStatus {
   syncOk: boolean
   platform: NodeJS.Platform
   canInject: boolean
+  peer: { name: string; role: 'above' | 'below' } | null
+  fly: 'up' | 'down'
 }
 
 export interface StickyApi {
@@ -29,6 +31,7 @@ export interface StickyApi {
   getStatus: () => Promise<StickyStatus>
   onHistory: (cb: (items: ClipItem[]) => void) => () => void
   onStatus: (cb: (status: StickyStatus) => void) => () => void
+  onHandoff: (cb: (e: { kind: 'send' | 'recv'; fly: 'up' | 'down'; label: string }) => void) => () => void
 }
 
 export const HISTORY_LIMIT = 80

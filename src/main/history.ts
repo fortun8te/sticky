@@ -23,8 +23,15 @@ export class HistoryStore {
   }
 
   upsert(item: ClipItem): ClipItem[] {
-    const items = this.read().filter((i) => clipKey(i) !== clipKey(item))
-    const next = mergeHistory([item, ...items], [])
+    const items = this.read()
+    const prev = items.find((i) => clipKey(i) === clipKey(item))
+    const nextItem: ClipItem = prev
+      ? { ...item, id: prev.id, pinned: Boolean(prev.pinned || item.pinned) }
+      : item
+    const next = mergeHistory(
+      [nextItem, ...items.filter((i) => clipKey(i) !== clipKey(nextItem))],
+      []
+    )
     this.write(next)
     return next
   }

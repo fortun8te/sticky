@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
+    <title>Sticky FX</title>
+    <link rel="stylesheet" href="./fx.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div id="blob"></div>
+    </div>
+    <script>
+      const stage = document.getElementById('stage')
+      let clearPlay = 0
+
+      function play(fly, kind) {
+        if (fly !== 'up' && fly !== 'down') return
+        if (kind !== 'send' && kind !== 'recv') kind = 'send'
+        stage.className = ''
+        void stage.offsetWidth
+        stage.classList.add(fly === 'up' ? 'fly-up' : 'fly-down')
+        if (kind === 'recv') stage.classList.add('recv')
+        stage.classList.add('play')
+        window.clearTimeout(clearPlay)
+        clearPlay = window.setTimeout(() => {
+          stage.classList.remove('play')
+        }, 900)
+      }
+
+      function parse(token) {
+        if (!token) return
+        const raw = String(token).trim().replace(/^#/, '')
+        const [fly, kind] = raw.split('-')
+        play(fly, kind)
+      }
+
+      window.addEventListener('message', (e) => {
+        const d = e.data
+        if (d == null) return
+        if (typeof d === 'string') {
+          parse(d)
+          return
+        }
+        if (typeof d !== 'object') return
+        const fly = d.fly ?? d.dir
+        const kind = d.kind ?? d.mode
+        if (fly) play(fly, kind || 'send')
+        else if (d.hash || d.type) parse(d.hash || d.type)
+      })
+
+      window.addEventListener('hashchange', () => parse(location.hash))
+      if (location.hash) parse(location.hash)
+    </script>
+  </body>
+</html>

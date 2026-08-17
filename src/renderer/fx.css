@@ -1,0 +1,199 @@
+* { box-sizing: border-box; }
+
+html, body, #stage {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color-scheme: dark;
+  pointer-events: none;
+  user-select: none;
+}
+
+#stage {
+  position: relative;
+  --anchor-y: 26px;
+}
+
+/* Win send (down) + Win recv (up): pill sits on the BOTTOM edge. */
+#stage.fly-down:not(.recv),
+#stage.fly-up.recv {
+  --anchor-y: calc(100% - 26px);
+}
+
+/* Mac send (up) + Mac recv (down): pill sits on the TOP edge. */
+#stage.fly-up:not(.recv),
+#stage.fly-down.recv {
+  --anchor-y: 26px;
+}
+
+.ring,
+#blob {
+  position: absolute;
+  left: 50%;
+  top: var(--anchor-y);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.ring {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 1.25px solid rgba(236, 244, 255, 0.34);
+  box-shadow:
+    0 0 28px rgba(170, 204, 255, 0.1),
+    inset 0 0 22px rgba(255, 255, 255, 0.05);
+  transform: translate(-50%, -50%) scale(0.16);
+}
+
+#blob {
+  width: 34px;
+  height: 24px;
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(214, 230, 255, 0.72));
+  box-shadow:
+    0 10px 24px rgba(90, 140, 220, 0.22),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.85);
+  transform: translate(-50%, -50%) scale(0.8);
+}
+
+#stage.play:not(.recv) .r1 { animation: ring-out 900ms ease-out both; }
+#stage.play:not(.recv) .r2 { animation: ring-out 900ms 0.12s ease-out both; }
+#stage.play:not(.recv) .r3 { animation: ring-out 900ms 0.24s ease-out both; }
+
+#stage.play.recv.fly-down .r1 { animation: ring-in-above 900ms ease-in both; }
+#stage.play.recv.fly-down .r2 { animation: ring-in-above 900ms 0.1s ease-in both; }
+#stage.play.recv.fly-down .r3 { animation: ring-in-above 900ms 0.2s ease-in both; }
+
+#stage.play.recv.fly-up .r1 { animation: ring-in-below 900ms ease-in both; }
+#stage.play.recv.fly-up .r2 { animation: ring-in-below 900ms 0.1s ease-in both; }
+#stage.play.recv.fly-up .r3 { animation: ring-in-below 900ms 0.2s ease-in both; }
+
+#stage.play.fly-down:not(.recv) #blob {
+  animation: blob-leave-down 900ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+#stage.play.fly-up:not(.recv) #blob {
+  animation: blob-leave-up 900ms cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+#stage.play.fly-down.recv #blob {
+  animation: blob-arrive-down 900ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+#stage.play.fly-up.recv #blob {
+  animation: blob-arrive-up 900ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+@keyframes ring-out {
+  0% {
+    opacity: 0.5;
+    transform: translate(-50%, -50%) scale(0.16);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.55);
+  }
+}
+
+@keyframes ring-in-above {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -78%) scale(2.35);
+  }
+  22% { opacity: 0.38; }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.08);
+  }
+}
+
+@keyframes ring-in-below {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -22%) scale(2.35);
+  }
+  22% { opacity: 0.38; }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.08);
+  }
+}
+
+@keyframes blob-leave-down {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(32vh) scale(0.7);
+  }
+}
+
+@keyframes blob-leave-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  14% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-32vh) scale(0.7);
+  }
+}
+
+@keyframes blob-arrive-down {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-28vh) scale(0.72);
+  }
+  48% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+}
+
+@keyframes blob-arrive-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(28vh) scale(0.72);
+  }
+  48% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring { display: none; }
+
+  #stage.play #blob {
+    animation: just-fade 900ms ease both !important;
+  }
+
+  @keyframes just-fade {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+    30% { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+  }
+}

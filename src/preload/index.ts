@@ -1,7 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ClipItem, StickyApi, StickyStatus } from '../shared/types'
 
-const api: StickyApi & { pathForFile: (file: File) => string; hide: () => void } = {
+type Handoff = { kind: 'send' | 'recv'; fly: 'up' | 'down'; label: string }
+
+const api: StickyApi & {
+  pathForFile: (file: File) => string
+  hide: () => void
+  setClickThrough: (on: boolean) => void
+} = {
   dropText: (text) => ipcRenderer.invoke('sticky:dropText', text),
   dropFiles: (paths) => ipcRenderer.invoke('sticky:dropFiles', paths),
   getHistory: () => ipcRenderer.invoke('sticky:getHistory'),
@@ -12,6 +18,7 @@ const api: StickyApi & { pathForFile: (file: File) => string; hide: () => void }
   getStatus: () => ipcRenderer.invoke('sticky:getStatus'),
   pathForFile: (file) => webUtils.getPathForFile(file),
   hide: () => ipcRenderer.send('sticky:hide'),
+  setClickThrough: (on: boolean) => ipcRenderer.send('sticky:clickThrough', on),
   onHistory: (cb) => {
     const fn = (_: unknown, items: ClipItem[]) => cb(items)
     ipcRenderer.on('sticky:history', fn)
@@ -21,6 +28,11 @@ const api: StickyApi & { pathForFile: (file: File) => string; hide: () => void }
     const fn = (_: unknown, status: StickyStatus) => cb(status)
     ipcRenderer.on('sticky:status', fn)
     return () => ipcRenderer.removeListener('sticky:status', fn)
+  },
+  onHandoff: (cb) => {
+    const fn = (_: unknown, e: Handoff) => cb(e)
+    ipcRenderer.on('sticky:handoff', fn)
+    return () => ipcRenderer.removeListener('sticky:handoff', fn)
   }
 }
 
@@ -28,6 +40,10 @@ contextBridge.exposeInMainWorld('sticky', api)
 
 declare global {
   interface Window {
-    sticky: StickyApi & { pathForFile: (file: File) => string; hide: () => void }
+    sticky: StickyApi & {
+      pathForFile: (file: File) => string
+      hide: () => void
+      setClickThrough: (on: boolean) => void
+    }
   }
 }

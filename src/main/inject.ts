@@ -11,12 +11,33 @@ const VK_CONTROL = 0x11
 const VK_MENU = 0x12
 const VK_V = 0x56
 const KEYEVENTF_KEYUP = 0x0002
+const INPUT_KEYBOARD = 1
 const SW_RESTORE = 9
 
 export interface LastTarget {
   id: string
   title: string
 }
+
+type WinApi = {
+  GetForegroundWindow: () => unknown
+  SetForegroundWindow: (h: bigint) => boolean
+  GetWindowTextW: (h: bigint, buf: Buffer, len: number) => number
+  GetClassNameW: (h: bigint, buf: Buffer, len: number) => number
+  IsWindow: (h: bigint) => boolean
+  ShowWindow: (h: bigint, n: number) => boolean
+  BringWindowToTop: (h: bigint) => boolean
+  GetWindowThreadProcessId: (h: bigint, pid: Buffer) => number
+  AttachThreadInput: (a: number, b: number, f: number) => number
+  keybd_event: (vk: number, scan: number, flags: number, extra: number | bigint) => void
+  SendInput: ((n: number, p: Buffer, cb: number) => number) | null
+  GetCurrentProcessId: () => number
+  GetCurrentThreadId: () => number
+}
+
+let winApi: WinApi | null = null
+let winApiFailed = false
+let ourPid = 0
 
 function ourHandles(win: BrowserWindow | null): Set<string> {
   const set = new Set<string>()
@@ -31,41 +52,46 @@ function ourHandles(win: BrowserWindow | null): Set<string> {
   return set
 }
 
-type WinUser32 = {
-  GetForegroundWindow: () => unknown
-  SetForegroundWindow: (h: bigint) => boolean
-  GetWindowTextW: (h: bigint, buf: Buffer, len: number) => number
-  IsWindow: (h: bigint) => boolean
-  ShowWindow: (h: bigint, n: number) => boolean
-  BringWindowToTop: (h: bigint) => boolean
-  keybd_event: (vk: number, scan: number, flags: number, extra: number | bigint) => void
-}
-
-let winUser32: WinUser32 | null = null
-let winApiFailed = false
-
-function loadWin(): WinUser32 | null {
+function loadWin(): WinApi | null {
   if (process.platform !== 'win32') return null
   if (winApiFailed) return null
-  if (winUser32) return winUser32
+  if (winApi) return winApi
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const koffi = require('koffi') as typeof import('koffi')
     const user32 = koffi.load('user32.dll')
-    winUser32 = {
+    const kernel32 = koffi.load('kernel32.dll')
+    let sendInput: WinApi['SendInput'] = null
+    try {
+      sendInput = user32.func('uint32_t __stdcall SendInput(uint32_t n, void *p, int cb)')
+    } catch {
+      sendInput = null
+    }
+    winApi = {
       GetForegroundWindow: user32.func('uintptr __stdcall GetForegroundWindow()'),
       SetForegroundWindow: user32.func('bool __stdcall SetForegroundWindow(uintptr h)'),
       GetWindowTextW: user32.func('int __stdcall GetWindowTextW(uintptr h, void *buf, int n)'),
+      GetClassNameW: user32.func('int __stdcall GetClassNameW(uintptr h, void *buf, int n)'),
       IsWindow: user32.func('bool __stdcall IsWindow(uintptr h)'),
       ShowWindow: user32.func('bool __stdcall ShowWindow(uintptr h, int n)'),
       BringWindowToTop: user32.func('bool __stdcall BringWindowToTop(uintptr h)'),
-      keybd_event: user32.func('void __stdcall keybd_event(uint8_t vk, uint8_t scan, uint32_t flags, uintptr extra)')
+      GetWindowThreadProcessId: user32.func(
+        'uint32_t __stdcall GetWindowThreadProcessId(uintptr h, void *pid)'
+      ),
+      AttachThreadInput: user32.func(
+        'int __stdcall AttachThreadInput(uint32_t a, uint32_t b, int f)'
+      ),
+      keybd_event: user32.func('void __stdcall keybd_event(uint8_t vk, uint8_t scan, uint32_t flags, uintptr extra)'),
+      SendInput: sendInput,
+      GetCurrentProcessId: kernel32.func('uint32_t __stdcall GetCurrentProcessId()'),
+      GetCurrentThreadId: kernel32.func('uint32_t __stdcall GetCurrentThreadId()')
     }
-    winUser32.GetForegroundWindow()
-    return winUser32
+    ourPid = winApi.GetCurrentProcessId() || process.pid
+    winApi.GetForegroundWindow()
+    return winApi
   } catch {
     winApiFailed = true
-    winUser32 = null
+    winApi = null
     return null
   }
 }
@@ -81,7 +107,7 @@ function asHwnd(value: unknown): bigint {
   return 0n
 }
 
-function winTitle(api: WinUser32, h: bigint): string {
+function winTitle(api: WinApi, h: bigint): string {
   try {
     const buf = Buffer.alloc(1024)
     const n = api.GetWindowTextW(h, buf, 512)
@@ -92,7 +118,75 @@ function winTitle(api: WinUser32, h: bigint): string {
   }
 }
 
-function sendCtrlVNative(api: WinUser32): boolean {
+function winClass(api: WinApi, h: bigint): string {
+  try {
+    const buf = Buffer.alloc(1024)
+    const n = api.GetClassNameW(h, buf, 512)
+    if (n <= 0) return ''
+    return buf.toString('utf16le').replace(/\0/g, '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function windowPidTid(api: WinApi, h: bigint): { pid: number; tid: number } {
+  try {
+    const buf = Buffer.alloc(4)
+    const tid = api.GetWindowThreadProcessId(h, buf) >>> 0
+    const pid = buf.readUInt32LE(0)
+    return { pid, tid }
+  } catch {
+    return { pid: 0, tid: 0 }
+  }
+}
+
+function isOurHwnd(api: WinApi, win: BrowserWindow | null, h: bigint): boolean {
+  if (!h) return true
+  if (ourHandles(win).has(h.toString())) return true
+  const { pid } = windowPidTid(api, h)
+  if (pid && (pid === ourPid || pid === process.pid)) return true
+  const title = winTitle(api, h)
+  if (title === 'Sticky') return true
+  const cls = winClass(api, h)
+  if (cls.includes('Chrome_WidgetWin') && (pid === ourPid || pid === process.pid || title === 'Sticky')) return true
+  return false
+}
+
+function sanitizeTarget(api: WinApi, win: BrowserWindow | null, target: LastTarget | null): LastTarget | null {
+  if (!target) return null
+  const h = asHwnd(target.id)
+  if (!h || !api.IsWindow(h) || isOurHwnd(api, win, h)) return null
+  return target
+}
+
+function inputSize(): number {
+  return process.arch === 'ia32' ? 28 : 40
+}
+
+function writeKeyInput(buf: Buffer, offset: number, vk: number, flags: number): void {
+  const ki = process.arch === 'ia32' ? offset + 4 : offset + 8
+  buf.writeUInt32LE(INPUT_KEYBOARD, offset)
+  buf.writeUInt16LE(vk, ki)
+  buf.writeUInt16LE(0, ki + 2)
+  buf.writeUInt32LE(flags, ki + 4)
+}
+
+function sendCtrlVSendInput(api: WinApi): boolean {
+  if (!api.SendInput) return false
+  const size = inputSize()
+  const n = 4
+  const buf = Buffer.alloc(size * n)
+  const keys: Array<[number, number]> = [
+    [VK_CONTROL, 0],
+    [VK_V, 0],
+    [VK_V, KEYEVENTF_KEYUP],
+    [VK_CONTROL, KEYEVENTF_KEYUP]
+  ]
+  keys.forEach(([vk, flags], i) => writeKeyInput(buf, i * size, vk, flags))
+  return api.SendInput(n, buf, size) === n
+}
+
+function sendCtrlVKeybd(api: WinApi): boolean {
   try {
     api.keybd_event(VK_CONTROL, 0, 0, 0)
     api.keybd_event(VK_V, 0, 0, 0)
@@ -102,6 +196,15 @@ function sendCtrlVNative(api: WinUser32): boolean {
   } catch {
     return false
   }
+}
+
+function sendCtrlVNative(api: WinApi): boolean {
+  try {
+    if (sendCtrlVSendInput(api)) return true
+  } catch {
+    /* fall through */
+  }
+  return sendCtrlVKeybd(api)
 }
 
 async function sendCtrlVPowershell(): Promise<boolean> {
@@ -123,19 +226,35 @@ async function sendCtrlVPowershell(): Promise<boolean> {
   }
 }
 
-function focusHwnd(api: WinUser32, h: bigint): boolean {
+function focusHwnd(api: WinApi, h: bigint): boolean {
   try {
     if (!api.IsWindow(h)) return false
-    api.ShowWindow(h, SW_RESTORE)
-    api.BringWindowToTop(h)
+    const ourTid = api.GetCurrentThreadId() >>> 0
+    const { tid: targetTid } = windowPidTid(api, h)
+    let attached = false
     try {
-      api.keybd_event(VK_MENU, 0, 0, 0)
-      api.SetForegroundWindow(h)
-      api.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
-    } catch {
-      api.SetForegroundWindow(h)
+      if (targetTid && targetTid !== ourTid) {
+        attached = api.AttachThreadInput(ourTid, targetTid, 1) !== 0
+      }
+      api.ShowWindow(h, SW_RESTORE)
+      api.BringWindowToTop(h)
+      try {
+        api.keybd_event(VK_MENU, 0, 0, 0)
+        api.SetForegroundWindow(h)
+        api.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+      } catch {
+        api.SetForegroundWindow(h)
+      }
+      return true
+    } finally {
+      if (attached) {
+        try {
+          api.AttachThreadInput(ourTid, targetTid, 0)
+        } catch {
+          /* ignore */
+        }
+      }
     }
-    return true
   } catch {
     return false
   }
@@ -157,13 +276,10 @@ export function pollLastTarget(win: BrowserWindow | null, current: LastTarget | 
     if (process.platform === 'win32') {
       const api = loadWin()
       if (!api) return current
+      const kept = sanitizeTarget(api, win, current)
       const h = asHwnd(api.GetForegroundWindow())
-      if (!h) return current
-      if (ourHandles(win).has(h.toString())) return current
-      if (!api.IsWindow(h)) return current
-      const title = winTitle(api, h)
-      if (title === 'Sticky') return current
-      return { id: h.toString(), title: title || 'Last app' }
+      if (!h || !api.IsWindow(h) || isOurHwnd(api, win, h)) return kept
+      return { id: h.toString(), title: winTitle(api, h) || 'Last app' }
     }
     if (process.platform === 'darwin') {
       void refreshMacTarget(macCached ?? current)
@@ -222,9 +338,11 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
       const api = loadWin()
       if (!api) return false
       const h = asHwnd(target.id)
-      if (!h) return false
+      if (!h || !api.IsWindow(h) || isOurHwnd(api, win, h)) return false
       if (!focusHwnd(api, h)) return false
-      await delay(50)
+      await delay(80)
+      const fg = asHwnd(api.GetForegroundWindow())
+      if (isOurHwnd(api, win, h) || (fg && isOurHwnd(api, win, fg))) return false
       const injected = sendCtrlVNative(api) || (await sendCtrlVPowershell())
       try {
         win?.setAlwaysOnTop(true, 'floating')

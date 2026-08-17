@@ -1,197 +1,114 @@
-import type { ClipItem, StickyStatus } from '../shared/types'
-import { previewText } from '../shared/types'
+const bar = document.querySelector('#bar') as HTMLElement
+const box = document.querySelector('#box') as HTMLInputElement
+const send = document.querySelector('#send') as HTMLButtonElement
+const peer = document.querySelector('#peer') as HTMLElement | null
+const api = window.sticky
 
-const box = document.querySelector('#box') as HTMLTextAreaElement
-const list = document.querySelector('#list') as HTMLUListElement
-const statusLine = document.querySelector('#statusLine') as HTMLElement
-const statusApp = document.querySelector('#statusApp') as HTMLElement
-const statusSync = document.querySelector('#statusSync') as HTMLElement
-const dropZone = document.querySelector('#dropZone') as HTMLElement
-const sendBtn = document.querySelector('#sendBtn') as HTMLButtonElement
-const clearBtn = document.querySelector('#clearBtn') as HTMLButtonElement
-const minBtn = document.querySelector('#minBtn') as HTMLButtonElement
-const closeBtn = document.querySelector('#closeBtn') as HTMLButtonElement
-
-let lastItems: ClipItem[] = []
-let dragDepth = 0
-
-function deviceLabel(device: ClipItem['device']): string {
-  if (device === 'macos') return 'Mac'
-  if (device === 'windows') return 'Windows'
-  if (device === 'linux') return 'Linux'
-  return ''
+function paint(s?: { platform?: string; peer?: unknown } | null): void {
+  const mac = s?.platform === 'darwin'
+  document.documentElement.classList.toggle('mac', mac)
+  document.documentElement.classList.toggle('win', !mac)
+  if (peer) peer.hidden = !s?.peer
 }
 
-function syncSend(): void {
-  sendBtn.disabled = !box.value.trim()
+void api?.getStatus?.().then(paint)
+api?.onStatus?.(paint)
+
+let handoffTimer = 0
+api?.onHandoff?.((e) => {
+  bar.classList.remove('hand-send', 'hand-recv', 'fly-up', 'fly-down')
+  bar.classList.add(e.kind === 'recv' ? 'hand-recv' : 'hand-send', e.fly === 'down' ? 'fly-down' : 'fly-up')
+  window.clearTimeout(handoffTimer)
+  handoffTimer = window.setTimeout(() => {
+    bar.classList.remove('hand-send', 'hand-recv', 'fly-up', 'fly-down')
+  }, 1000)
+})
+
+function paths(list?: FileList | File[] | null): string[] {
+  if (!list?.length || !api?.pathForFile) return []
+  return [...list].map((f) => api.pathForFile(f)).filter(Boolean)
 }
 
-function setHot(on: boolean): void {
-  dropZone.classList.toggle('hot', on)
-}
-
-function setStatus(text: string, kind: 'ok' | 'err' | '' = ''): void {
-  statusApp.textContent = text
-  statusLine.classList.remove('ok', 'err')
-  if (kind) statusLine.classList.add(kind)
-}
-
-function fromStatus(s: StickyStatus): void {
-  const target = s.canInject ? s.lastApp : 'Click a field'
-  statusApp.textContent = target
-  statusSync.textContent = s.syncOk ? 'iCloud' : 'This device'
-  statusSync.classList.toggle('on', s.syncOk)
-  statusLine.classList.toggle('live', s.canInject)
-  statusLine.classList.remove('ok', 'err')
-}
-
-function render(items: ClipItem[]): void {
-  lastItems = items
-  clearBtn.hidden = items.length === 0
-  if (!items.length) {
-    list.innerHTML = `<li class="empty"><p>Nothing here yet</p><small>Paste or drop a file. Later, 1–9 sends a clip.</small></li>`
-    return
-  }
-  list.innerHTML = items
-    .map((item, i) => {
-      const kind = item.type === 'files' ? 'File' : 'Text'
-      const device = deviceLabel(item.device)
-      const when = new Date(item.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      const preview = escapeHtml(previewText(item, 64) || 'Empty')
-      const idx = i < 9 ? String(i + 1) : ''
-      return `<li class="row ${item.pinned ? 'pinned' : ''} ${item.type}" data-id="${item.id}" tabindex="0" title="${preview}">
-        <b class="idx">${idx}</b>
-        <div>
-          <p>${preview}</p>
-          <div class="meta">
-            <span class="tag ${item.type === 'files' ? 'file' : 'text'}">${kind}</span>
-            ${device ? `<span class="tag">${device}</span>` : ''}
-            <time>${when}</time>
-          </div>
-        </div>
-        <div class="row-actions">
-          <button class="row-btn pin" title="Pin" type="button" aria-label="${item.pinned ? 'Unpin' : 'Pin'}">${item.pinned ? '★' : '☆'}</button>
-          <button class="row-btn del" title="Remove" type="button" aria-label="Remove">✕</button>
-        </div>
-      </li>`
-    })
-    .join('')
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string)
-}
-
-async function sendText(text: string): Promise<void> {
-  const body = text.trimEnd()
-  if (!body) return
-  const res = await window.sticky.dropText(body)
+async function dropText(text: string): Promise<void> {
   box.value = ''
-  syncSend()
-  setStatus(res.message, res.ok ? 'ok' : 'err')
+  if (!text || !api?.dropText) return
+  await api.dropText(text)
 }
 
-async function sendFiles(paths: string[]): Promise<void> {
-  if (!paths.length) return
-  const res = await window.sticky.dropFiles(paths)
-  setStatus(res.message, res.ok ? 'ok' : 'err')
-}
-
-function filesFromList(files: FileList | File[]): string[] {
-  return [...files].map((f) => window.sticky.pathForFile(f)).filter(Boolean)
+async function dropFiles(list?: FileList | File[] | null): Promise<void> {
+  box.value = ''
+  const files = paths(list)
+  if (!files.length || !api?.dropFiles) return
+  await api.dropFiles(files)
 }
 
 box.addEventListener('paste', (e) => {
-  e.preventDefault()
-  const files = filesFromList(e.clipboardData?.files ?? [])
-  if (files.length) {
-    void sendFiles(files)
+  const files = e.clipboardData?.files
+  if (files?.length && paths(files).length) {
+    e.preventDefault()
+    void dropFiles(files)
     return
   }
   const text = e.clipboardData?.getData('text/plain') ?? ''
-  void sendText(text)
+  if (!text) return
+  e.preventDefault()
+  void dropText(text)
 })
-
-box.addEventListener('input', syncSend)
-box.addEventListener('focus', () => dropZone.classList.add('focus'))
-box.addEventListener('blur', () => dropZone.classList.remove('focus'))
 
 box.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter') {
     e.preventDefault()
-    void sendText(box.value)
-  }
-})
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
+    void dropText(box.value)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
     box.value = ''
-    syncSend()
-    return
   }
-  if (e.metaKey || e.ctrlKey || e.altKey) return
-  if (e.key < '1' || e.key > '9') return
-  if (document.activeElement === box && box.value.length > 0) return
-  const item = lastItems[Number(e.key) - 1]
-  if (!item) return
+})
+
+send?.addEventListener('click', () => void dropText(box.value))
+
+document.addEventListener('dragover', (e) => {
   e.preventDefault()
-  void window.sticky.pasteItem(item.id)
+  bar.classList.add('hot')
 })
 
-sendBtn.addEventListener('click', () => void sendText(box.value))
-clearBtn.addEventListener('click', () => void window.sticky.clearHistory())
-minBtn.addEventListener('click', () => window.sticky.hide())
-closeBtn.addEventListener('click', () => window.sticky.hide())
-
-list.addEventListener('click', (e) => {
-  const t = e.target as HTMLElement
-  const row = t.closest('.row') as HTMLElement | null
-  if (!row) return
-  const id = row.dataset.id
-  if (!id) return
-  if (t.closest('.pin')) {
-    void window.sticky.pinItem(id)
-    return
-  }
-  if (t.closest('.del')) {
-    void window.sticky.deleteItem(id)
-    return
-  }
-  void window.sticky.pasteItem(id)
-})
-
-list.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return
-  const t = e.target as HTMLElement
-  if (t.closest('.row-btn')) return
-  const row = t.closest('.row') as HTMLElement | null
-  if (!row?.dataset.id) return
-  e.preventDefault()
-  void window.sticky.pasteItem(row.dataset.id)
-})
-
-document.addEventListener('dragenter', (e) => {
-  e.preventDefault()
-  dragDepth += 1
-  setHot(true)
-})
-document.addEventListener('dragover', (e) => e.preventDefault())
 document.addEventListener('dragleave', (e) => {
-  e.preventDefault()
-  dragDepth = Math.max(0, dragDepth - 1)
-  if (dragDepth === 0) setHot(false)
+  if (!e.relatedTarget) bar.classList.remove('hot')
 })
+
 document.addEventListener('drop', (e) => {
   e.preventDefault()
-  dragDepth = 0
-  setHot(false)
-  const files = filesFromList((e as DragEvent).dataTransfer?.files ?? [])
-  void sendFiles(files)
+  bar.classList.remove('hot')
+  void dropFiles(e.dataTransfer?.files)
 })
 
-window.sticky.onHistory(render)
-window.sticky.onStatus(fromStatus)
-void window.sticky.getHistory().then(render)
-void window.sticky.getStatus().then(fromStatus)
-syncSend()
-box.focus()
+let focused = false
+let over = false
+let pass = true
+
+function through(on: boolean): void {
+  if (!api?.setClickThrough || on === pass) return
+  pass = on
+  api.setClickThrough(on)
+}
+
+function apply(): void {
+  through(!(focused || over))
+}
+
+box.addEventListener('focus', () => {
+  focused = true
+  through(false)
+})
+
+box.addEventListener('blur', () => {
+  focused = false
+  apply()
+})
+
+document.addEventListener('mousemove', (e) => {
+  over = !!(e.target as HTMLElement | null)?.closest?.('#bar')
+  apply()
+})
+
+through(true)
