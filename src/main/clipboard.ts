@@ -50,7 +50,7 @@ async function runWindowsPowershell(command: string, input?: string): Promise<vo
     try {
       if (input === undefined) {
         await execFileAsync(windowsPowershell(), args, {
-          timeout: 10_000,
+          timeout: 30_000,
           windowsHide: true,
           encoding: 'utf8'
         })
@@ -76,7 +76,7 @@ function spawnWindowsPowershell(args: string[], input: string): Promise<void> {
     const timer = setTimeout(() => {
       child.kill()
       reject(new Error('Clipboard write timed out'))
-    }, 10_000)
+    }, 30_000)
     child.stderr.on('data', (chunk) => {
       stderr += String(chunk)
     })
@@ -171,7 +171,7 @@ async function writeMacFileUrls(posix: string[]): Promise<void> {
     '  pb\'s writeObjects:urlArray',
     'end run'
   ].join('\n')
-  await execFileAsync('osascript', ['-e', script, ...posix], { encoding: 'utf8', timeout: 8000 })
+  await execFileAsync('osascript', ['-e', script, ...posix], { encoding: 'utf8', timeout: 30000 })
 }
 
 async function writeMacFileUrlsFallback(posix: string[]): Promise<void> {
@@ -184,5 +184,5 @@ async function writeMacFileUrlsFallback(posix: string[]): Promise<void> {
     '  set the clipboard to furlList',
     'end run'
   ].join('\n')
-  await execFileAsync('osascript', ['-e', script, ...posix], { encoding: 'utf8', timeout: 8000 })
+  await execFileAsync('osascript', ['-e', script, ...posix], { encoding: 'utf8', timeout: 30000 })
 }

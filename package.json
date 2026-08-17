@@ -14,7 +14,7 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
-    "test": "node --experimental-strip-types --test src/shared/history.test.ts"
+    "test": "node --experimental-strip-types --test src/shared/history.test.ts src/main/peer.test.ts"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

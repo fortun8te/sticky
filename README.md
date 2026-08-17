@@ -7,7 +7,9 @@ Windows monitor sits **above** the MacBook, so:
 - Windows pill docks at the **bottom** (facing the Mac)
 - Mac pill lives in the **notch** (facing Windows — Wispr Flow keeps the Mac bottom)
 
-Handoff uses the local network (UDP 47831 / HTTP 47832). Same Wi‑Fi. Allow the firewall / Local Network prompt.
+Handoff uses the local network (UDP 47831 / HTTP 47832). Same Wi‑Fi. Allow the firewall / Local Network prompt. Files land in **Downloads/Sticky** on the other machine (folders stay folders, up to 8GB). Both machines need this build.
+
+Hover the Mac **notch** to open the island, then click to type / paste / drop. The Windows pill sits at the bottom.
 
 ## Use it
 

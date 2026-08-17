@@ -1,17 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="idle">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
     <title>Sticky</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body class="idle">
     <div class="bar" id="bar">
-      <span class="mark" aria-hidden="true"></span>
-      <input id="box" type="text" placeholder="Drop" autocomplete="off" spellcheck="false" />
+      <div id="stack" class="stack" hidden></div>
+      <span id="hint"></span>
+      <input id="box" type="text" placeholder="" autocomplete="off" spellcheck="false" tabindex="-1" />
+      <div id="hist" class="hist" aria-label="History"></div>
       <span id="peer" hidden></span>
-      <button id="send" type="button" aria-label="Send"></button>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

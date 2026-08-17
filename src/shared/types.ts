@@ -1,4 +1,6 @@
 export type ClipType = 'text' | 'files'
+export type IslandMode = 'idle' | 'open' | 'hot' | 'busy'
+export type ExpandReason = 'drag' | 'focus' | 'hotkey' | 'hover'
 
 export interface ClipItem {
   id: string
@@ -18,6 +20,8 @@ export interface StickyStatus {
   canInject: boolean
   peer: { name: string; role: 'above' | 'below' } | null
   fly: 'up' | 'down'
+  island: IslandMode
+  label: string
 }
 
 export interface StickyApi {
@@ -29,9 +33,14 @@ export interface StickyApi {
   deleteItem: (id: string) => Promise<void>
   clearHistory: () => Promise<void>
   getStatus: () => Promise<StickyStatus>
+  expand: (reason?: ExpandReason) => void
+  collapse: () => void
+  haptic: (kind: 'tick' | 'drop' | 'catch') => void
+  fileIcons: (paths: string[]) => Promise<string[]>
   onHistory: (cb: (items: ClipItem[]) => void) => () => void
   onStatus: (cb: (status: StickyStatus) => void) => () => void
   onHandoff: (cb: (e: { kind: 'send' | 'recv'; fly: 'up' | 'down'; label: string }) => void) => () => void
+  onIsland: (cb: (e: { mode: IslandMode; label: string; reason?: ExpandReason }) => void) => () => void
 }
 
 export const HISTORY_LIMIT = 80

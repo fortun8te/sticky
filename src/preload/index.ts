@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { ClipItem, StickyApi, StickyStatus } from '../shared/types'
+import type { ClipItem, ExpandReason, IslandMode, StickyApi, StickyStatus } from '../shared/types'
 
 type Handoff = { kind: 'send' | 'recv'; fly: 'up' | 'down'; label: string }
+type Island = { mode: IslandMode; label: string; reason?: ExpandReason }
 
 const api: StickyApi & {
   pathForFile: (file: File) => string
@@ -16,6 +17,10 @@ const api: StickyApi & {
   deleteItem: (id) => ipcRenderer.invoke('sticky:deleteItem', id),
   clearHistory: () => ipcRenderer.invoke('sticky:clearHistory'),
   getStatus: () => ipcRenderer.invoke('sticky:getStatus'),
+  expand: (reason) => ipcRenderer.send('sticky:expand', reason ?? 'focus'),
+  collapse: () => ipcRenderer.send('sticky:collapse'),
+  haptic: (kind) => ipcRenderer.send('sticky:haptic', kind),
+  fileIcons: (paths) => ipcRenderer.invoke('sticky:fileIcons', paths),
   pathForFile: (file) => webUtils.getPathForFile(file),
   hide: () => ipcRenderer.send('sticky:hide'),
   setClickThrough: (on: boolean) => ipcRenderer.send('sticky:clickThrough', on),
@@ -33,6 +38,11 @@ const api: StickyApi & {
     const fn = (_: unknown, e: Handoff) => cb(e)
     ipcRenderer.on('sticky:handoff', fn)
     return () => ipcRenderer.removeListener('sticky:handoff', fn)
+  },
+  onIsland: (cb) => {
+    const fn = (_: unknown, e: Island) => cb(e)
+    ipcRenderer.on('sticky:island', fn)
+    return () => ipcRenderer.removeListener('sticky:island', fn)
   }
 }
 

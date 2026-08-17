@@ -207,6 +207,31 @@ function sendCtrlVNative(api: WinApi): boolean {
   return sendCtrlVKeybd(api)
 }
 
+function sendCtrlVToHwnd(api: WinApi, h: bigint): boolean {
+  const ourTid = api.GetCurrentThreadId() >>> 0
+  const { tid: targetTid } = windowPidTid(api, h)
+  let attached = false
+  try {
+    if (targetTid && targetTid !== ourTid) {
+      attached = api.AttachThreadInput(ourTid, targetTid, 1) !== 0
+    }
+    try {
+      api.SetForegroundWindow(h)
+    } catch {
+      /* still send — Sticky may be fg for a tick */
+    }
+    return sendCtrlVNative(api)
+  } finally {
+    if (attached) {
+      try {
+        api.AttachThreadInput(ourTid, targetTid, 0)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 async function sendCtrlVPowershell(): Promise<boolean> {
   try {
     await execFileAsync(
@@ -345,7 +370,10 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
       if (!focusHwnd(api, h)) return false
       await delay(110)
       if (!api.IsWindow(h)) return false
-      return sendCtrlVNative(api) || (await sendCtrlVPowershell())
+      // Sticky can still be fg for a tick after focus — send Ctrl+V anyway
+      const injected = sendCtrlVToHwnd(api, h) || (await sendCtrlVPowershell())
+      if (injected) await delay(50)
+      return injected
     } catch {
       return false
     }
@@ -354,7 +382,7 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
   if (process.platform === 'darwin') {
     try {
       // pid + name are argv — never interpolated into the script
-      const { stderr } = await execFileAsync(
+      const { stdout, stderr } = await execFileAsync(
         'osascript',
         [
           '-e',
@@ -388,7 +416,8 @@ export async function injectPaste(win: BrowserWindow | null, target: LastTarget 
         ],
         { encoding: 'utf8', timeout: 5000 }
       )
-      if (macAccessibilityDenied(stderr)) return false
+      if (macAccessibilityDenied(stderr) || macAccessibilityDenied(stdout)) return false
+      await delay(80)
       return true
     } catch {
       return false

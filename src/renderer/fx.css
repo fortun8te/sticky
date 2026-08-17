@@ -12,20 +12,20 @@ html, body, #stage {
 
 #stage {
   position: relative;
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --spring: cubic-bezier(0.22, 1.2, 0.36, 1);
-  --local: 28px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.22, 1.15, 0.36, 1);
+  --local: 52px;
   --remote: 42vh;
 }
 
 #stage.fly-up {
-  --local: 28px;
+  --local: 52px;
   --remote: 46vh;
 }
 
 #stage.fly-down {
-  --local: calc(100% - 28px);
-  --remote: 54vh;
+  --local: calc(100% - 52px);
+  --remote: 48vh;
 }
 
 .bloom,
@@ -41,8 +41,8 @@ html, body, #stage {
 
 .bloom {
   top: var(--local);
-  width: 120px;
-  height: 120px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   transform: translate(-50%, -50%) scale(0.2);
   background: radial-gradient(
@@ -82,145 +82,158 @@ html, body, #stage {
 }
 
 .pearl {
-  width: 11px;
-  height: 11px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   background: radial-gradient(
     circle at 34% 30%,
-    #fffef8 0%,
+    #fff 0%,
     #f4e6c8 46%,
     rgba(243, 230, 204, 0) 76%
   );
+}
+
+.pearl.local {
+  top: var(--local);
+  width: 9px;
+  height: 9px;
+  box-shadow:
+    0 0 12px rgba(248, 236, 214, 0.4),
+    0 0 2px rgba(255, 250, 240, 0.95);
+}
+
+.pearl.remote {
+  top: var(--local);
+  width: 11px;
+  height: 11px;
   box-shadow:
     0 0 18px rgba(248, 236, 214, 0.45),
     0 0 3px rgba(255, 250, 240, 0.95);
 }
 
-.pearl.local { top: var(--local); }
-.pearl.remote { top: var(--local); }
-
 .packet {
   top: var(--local);
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   transform: translate(-50%, -50%) scale(0.4);
   background: radial-gradient(circle at 40% 35%, #fff 0%, #f6ead0 55%, transparent 75%);
-  box-shadow: 0 0 14px rgba(255, 248, 236, 0.7);
+  box-shadow: 0 0 12px rgba(255, 248, 236, 0.7);
 }
 
-#stage.play:not(.recv) .bloom { animation: bloom-out 1500ms var(--ease) both; }
-#stage.play.recv .bloom { animation: bloom-in 1500ms var(--ease) both; }
+#stage.play:not(.recv) .bloom { animation: bloom-out 1200ms var(--ease) both; }
+#stage.play.recv .bloom { animation: bloom-in 1200ms var(--ease) both; }
 
-#stage.play:not(.recv) .bridge { animation: bridge-out 1500ms var(--ease) both; }
-#stage.play.recv .bridge { animation: bridge-in 1500ms var(--ease) both; }
+#stage.play:not(.recv) .bridge { animation: bridge-out 1200ms var(--ease) both; }
+#stage.play.recv .bridge { animation: bridge-in 1200ms var(--ease) both; }
 
-#stage.play:not(.recv) .pearl.local { animation: local-out 1500ms var(--spring) both; }
-#stage.play.recv .pearl.local { animation: local-in 1500ms var(--spring) both; }
+#stage.play:not(.recv) .pearl.local { animation: local-out 1200ms var(--spring) both; }
+#stage.play.recv .pearl.local { animation: local-in 1200ms var(--spring) both; }
 
-#stage.play.fly-up:not(.recv) .pearl.remote { animation: remote-up 1500ms var(--ease) both; }
-#stage.play.fly-down:not(.recv) .pearl.remote { animation: remote-down 1500ms var(--ease) both; }
-#stage.play.fly-up.recv .pearl.remote { animation: remote-in-up 1500ms var(--ease) both; }
-#stage.play.fly-down.recv .pearl.remote { animation: remote-in-down 1500ms var(--ease) both; }
+#stage.play.fly-up:not(.recv) .pearl.remote { animation: remote-up 1200ms var(--ease) both; }
+#stage.play.fly-down:not(.recv) .pearl.remote { animation: remote-down 1200ms var(--ease) both; }
+#stage.play.fly-up.recv .pearl.remote { animation: remote-in-up 1200ms var(--ease) both; }
+#stage.play.fly-down.recv .pearl.remote { animation: remote-in-down 1200ms var(--ease) both; }
 
-#stage.play.fly-up:not(.recv) .packet { animation: packet-up 1500ms var(--ease) both; }
-#stage.play.fly-down:not(.recv) .packet { animation: packet-down 1500ms var(--ease) both; }
-#stage.play.fly-up.recv .packet { animation: packet-in-up 1500ms var(--ease) both; }
-#stage.play.fly-down.recv .packet { animation: packet-in-down 1500ms var(--ease) both; }
+#stage.play.fly-up:not(.recv) .packet { animation: packet-up 1200ms var(--ease) both; }
+#stage.play.fly-down:not(.recv) .packet { animation: packet-down 1200ms var(--ease) both; }
+#stage.play.fly-up.recv .packet { animation: packet-in-up 1200ms var(--ease) both; }
+#stage.play.fly-down.recv .packet { animation: packet-in-down 1200ms var(--ease) both; }
 
 @keyframes bloom-out {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.15); }
-  18% { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
-  42% { opacity: 0.35; transform: translate(-50%, -50%) scale(1.35); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.8); }
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.12); }
+  14% { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
+  38% { opacity: 0.32; transform: translate(-50%, -50%) scale(1.28); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.7); }
 }
 
 @keyframes bloom-in {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
-  28% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.05); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  0%, 48% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+  62% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.05); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.35); }
 }
 
 @keyframes bridge-out {
-  0% { opacity: 0; height: 0; }
-  14% { opacity: 1; }
-  55% { opacity: 0.55; height: var(--remote); }
+  0%, 16% { opacity: 0; height: 0; }
+  26% { opacity: 1; }
+  58% { opacity: 0.55; height: var(--remote); }
   100% { opacity: 0; height: calc(var(--remote) + 6vh); }
 }
 
 @keyframes bridge-in {
   0% { opacity: 0; height: calc(var(--remote) + 4vh); }
-  22% { opacity: 0.8; }
+  18% { opacity: 0.8; }
   100% { opacity: 0; height: 0; }
 }
 
 @keyframes local-out {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-  10% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
-  28% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.18); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.22); }
+  22% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  72% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.65); }
 }
 
 @keyframes local-in {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
-  40% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
-  70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.35); }
+  0%, 48% { opacity: 0; transform: translate(-50%, -50%) scale(0.22); }
+  62% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+  78% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
 }
 
 @keyframes remote-up {
-  0%, 12% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.4); }
-  28% { opacity: 0.85; transform: translate(-50%, calc(-50% - var(--remote))) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.6); }
+  0%, 42% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.4); }
+  58% { opacity: 0.9; transform: translate(-50%, calc(-50% - var(--remote))) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.55); }
 }
 
 @keyframes remote-down {
-  0%, 12% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.4); }
-  28% { opacity: 0.85; transform: translate(-50%, calc(-50% + var(--remote))) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.6); }
+  0%, 42% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.4); }
+  58% { opacity: 0.9; transform: translate(-50%, calc(-50% + var(--remote))) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.55); }
 }
 
 @keyframes remote-in-up {
   0% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.5); }
-  36% { opacity: 1; transform: translate(-50%, calc(-50% - var(--remote))) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.4); }
+  16% { opacity: 1; transform: translate(-50%, calc(-50% - var(--remote))) scale(1); }
+  42% { opacity: 0.7; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.85); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.35); }
 }
 
 @keyframes remote-in-down {
   0% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.5); }
-  36% { opacity: 1; transform: translate(-50%, calc(-50% + var(--remote))) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.4); }
+  16% { opacity: 1; transform: translate(-50%, calc(-50% + var(--remote))) scale(1); }
+  42% { opacity: 0.7; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.85); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.35); }
 }
 
 @keyframes packet-up {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
-  16% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.45); }
+  0%, 18% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+  26% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.4); }
 }
 
 @keyframes packet-down {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
-  16% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.45); }
+  0%, 18% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+  26% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.4); }
 }
 
 @keyframes packet-in-up {
-  0% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.45); }
-  18% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+  0% { opacity: 0; transform: translate(-50%, calc(-50% - var(--remote))) scale(0.4); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.18); }
 }
 
 @keyframes packet-in-down {
-  0% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.45); }
-  18% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+  0% { opacity: 0; transform: translate(-50%, calc(-50% + var(--remote))) scale(0.4); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.18); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .bridge { display: none; }
   #stage.play .pearl.local {
-    animation: just-glow 900ms ease both !important;
+    animation: just-glow 720ms ease both !important;
   }
   #stage.play .pearl.remote,
   #stage.play .packet,
