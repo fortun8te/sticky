@@ -13,7 +13,7 @@ const BAR_W = 288
 const BAR_H = 52
 const BAR_GAP = 14
 const MAC_BOTTOM_TURF = 120
-const FX_MS = 1100
+const FX_MS = 1400
 
 const isMac = process.platform === 'darwin'
 const isWin = process.platform === 'win32'

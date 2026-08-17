@@ -8,10 +8,10 @@
   </head>
   <body>
     <div id="stage">
-      <div class="ring r1"></div>
-      <div class="ring r2"></div>
-      <div class="ring r3"></div>
-      <div id="blob"></div>
+      <div class="veil"></div>
+      <div class="caustic"></div>
+      <div class="filament"></div>
+      <div class="pearl"></div>
     </div>
     <script>
       const stage = document.getElementById('stage')
@@ -26,9 +26,7 @@
         if (kind === 'recv') stage.classList.add('recv')
         stage.classList.add('play')
         window.clearTimeout(clearPlay)
-        clearPlay = window.setTimeout(() => {
-          stage.classList.remove('play')
-        }, 900)
+        clearPlay = window.setTimeout(() => stage.classList.remove('play'), 1300)
       }
 
       function parse(token) {
@@ -41,15 +39,12 @@
       window.addEventListener('message', (e) => {
         const d = e.data
         if (d == null) return
-        if (typeof d === 'string') {
-          parse(d)
-          return
-        }
+        if (typeof d === 'string') return parse(d)
         if (typeof d !== 'object') return
         const fly = d.fly ?? d.dir
         const kind = d.kind ?? d.mode
         if (fly) play(fly, kind || 'send')
-        else if (d.hash || d.type) parse(d.hash || d.type)
+        else parse(d.hash || d.type)
       })
 
       window.addEventListener('hashchange', () => parse(location.hash))

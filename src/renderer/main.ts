@@ -21,7 +21,7 @@ api?.onHandoff?.((e) => {
   window.clearTimeout(handoffTimer)
   handoffTimer = window.setTimeout(() => {
     bar.classList.remove('hand-send', 'hand-recv', 'fly-up', 'fly-down')
-  }, 1000)
+  }, 1400)
 })
 
 function paths(list?: FileList | File[] | null): string[] {
