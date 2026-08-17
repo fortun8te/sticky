@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sticky</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="chrome">
+        <h1>Sticky</h1>
+        <div class="chrome-actions">
+          <button id="minBtn" class="icon-btn" type="button" title="Hide" aria-label="Hide">–</button>
+          <button id="closeBtn" class="icon-btn" type="button" title="Close" aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <div class="status" id="statusLine" role="status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="status-app" id="statusApp">Click a field</span>
+        <span class="status-sync" id="statusSync">This device</span>
+      </div>
+
+      <section class="composer" id="dropZone">
+        <textarea id="box" rows="4" placeholder="Paste anything, or drop files"></textarea>
+        <div class="composer-meta">
+          <span id="hint">Enter to send · Esc clears · 1–9</span>
+          <button id="sendBtn" class="send" type="button" disabled>Drop</button>
+        </div>
+        <div class="drop-veil" aria-hidden="true">
+          <span>Drop to send</span>
+        </div>
+      </section>
+
+      <section class="board">
+        <div class="board-head">
+          <h2>Clipboard</h2>
+          <button id="clearBtn" class="text-btn" type="button" hidden>Clear</button>
+        </div>
+        <ul id="list" class="list"></ul>
+      </section>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
