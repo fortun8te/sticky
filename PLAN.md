@@ -26,6 +26,35 @@ music widget. The notch is not a place you go; it is a thing that happens.
 
 **Replaces:** messaging myself files in Telegram Saved Messages.
 
+### 0.1 Feature set
+
+Each of these earns its place by needing **no new surface** — they ride on the
+notch, the menu bar, or an affordance the OS already provides. Anything that
+would add a persistent window is out.
+
+| # | Feature | Why it's minimal |
+|---|---|---|
+| F-1 | **Drag in → send.** Drop files at the notch, they land on the PC. | The product. |
+| F-2 | **Receive → notch.** The portal opens on its own, direction reversed. | Same surface, mirrored. |
+| F-3 | **The menu-bar icon is also a drop target.** | The only way to send in clamshell, on an external-only setup, or on a Mac with no notch. Zero new UI. |
+| F-4 | **Drag out.** A just-received file can be dragged straight from the portal into any app. | Symmetric with F-1 and uses the same surface. Needs `NSFilePromiseProvider`. |
+| F-5 | **File promises in.** Accept drags from the screenshot thumbnail, Photos, Mail and browsers — not just Finder. | Not a feature so much as *not being broken*: those drags carry an `NSFilePromiseReceiver`, not a `.fileURL`, and an app that handles only file URLs silently drops them. The single most common reason a drop target feels unreliable. |
+| F-6 | **Batch while sending.** A transfer in flight accepts more files dropped onto it. | Gives you "gather then send" without a persistent tray. See §15.6. |
+| F-7 | **Recents — last 5, with re-send.** | A bounded menu section, not a shelf. It disappears when the menu closes. |
+| F-8 | **QuickLook thumbnails on chips.** | Needed for the chip row to look like the reference at all. `QLThumbnailGenerator`, symbol fallback. |
+| F-9 | **Finder Quick Action: "Send to PC".** | Uses macOS's own right-click affordance. Also the only keyboard path — and it needs no hotkey, so it doesn't violate the input rule. |
+| F-10 | **Pending queue with resume.** PC offline → queued, not silently failed. Interrupted transfers resume from a byte offset. | Menu-only. The protocol already carries `resume` offsets. |
+| F-11 | **Windows: drop widget, Send To, and Explorer context menu.** | Three affordances because you *cannot* drop onto a Windows tray icon (§6). |
+| F-12 | **Toast on arrival with "Open Folder".** | The OS's own notification surface. |
+
+**Parked, deliberately:** explicit "Send Text", more than one peer,
+wake-on-LAN for the PC, transfer history beyond five, any clipboard behaviour,
+any always-visible surface on macOS.
+
+**Note on F-4 and F-5:** these are the two that make Sticky feel like a system
+feature rather than an app. Both are pure drag-and-drop plumbing, both are
+frequently got wrong, and both are gated in `docs/TASKS.md` T-204.
+
 ---
 
 ## 1. Post-mortem: what the old build actually was
@@ -1101,16 +1130,21 @@ not an afterthought: every phase gate above is machine-checkable on purpose.
 
 ### 14.1 Repo files that make agents behave
 
-Landing in Phase 1, before any feature work:
+These now exist in the repo — they are not aspirational:
 
-- **`AGENTS.md`** at the root — the contract every agent reads first. Contains
-  the §3.2 geometry law, the banned-API list, the design-token rule, and the
-  phase gates. Short, absolute, no rationale (rationale lives here).
-- **`CLAUDE.md`** — pointer to `AGENTS.md` plus build/test commands.
-- **`docs/PROTOCOL.md`** — the single wire-format source of truth. Mac and
-  Windows agents both read it and neither may extend it unilaterally.
-- **`docs/TOKENS.md`** — generated from `DesignSystem.swift`, so a Windows agent
-  can match colours and language without reading Swift.
+- **[`AGENTS.md`](AGENTS.md)** — the contract every agent reads first: banned
+  APIs, the geometry law, scope discipline, drag handling, error rules. Short and
+  absolute; the rationale lives here in PLAN.md.
+- **[`docs/TASKS.md`](docs/TASKS.md)** — ~30 task cards with IDs, dependencies,
+  single-owner markers and a machine-checkable gate each. This is the work queue.
+- **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** — the wire format, in full: ports,
+  identity, discovery, pairing, the prepare/upload/cancel/progress endpoints,
+  status codes, and the receiver-side filename sanitiser with its test vectors.
+- **[`docs/ICONS.md`](docs/ICONS.md)** — every icon, each one verified to resolve
+  (61/61 on this OS via `scripts/symcheck.swift`), plus the Windows mapping.
+  SF Symbols are licensed for Apple platforms only, so Windows uses Lucide (ISC).
+- **[`scripts/lint.sh`](scripts/lint.sh)** — the rules, enforced. Runs clean on
+  the tree today and fires on all nine rule classes against a probe file.
 
 ### 14.2 The lint is the real supervisor
 
