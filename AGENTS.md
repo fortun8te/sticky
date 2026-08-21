@@ -85,6 +85,28 @@ let originX = screen.frame.midX - width / 2
 - The portal exists only on the built-in display (the one where
   `auxiliaryTopLeftArea != nil`). No fake notch on the 27". Ever.
 
+### 3.1 Keeping content out of the camera region — the traps
+
+The rule "nothing is ever drawn in the top `safeAreaInsets.top` points" is easy to
+state and easy to break **silently**. Three independent prototypes hit this; two
+of the three obvious approaches fail with no error and no visual warning.
+
+| Approach | Result |
+|---|---|
+| `.mask(Rectangle()...)` combined with `.position(...)` | **Silently does not clip at all.** No error. Looks fine until you crop to full resolution and measure pixels. |
+| Drawing the notch through two separately-rasterized `Canvas` passes (e.g. a tinted "rim" pass under a black pass) | Anti-aliasing does not line up between the passes, leaving a permanent halo around the resting notch — visually identical to the floodlight glow we rejected, from a completely unrelated cause. |
+| **`ctx.clip(to:)` as the first call in every `Canvas` frame** | Works. Structural — no drawing primitive can escape regardless of position maths. |
+| **A container pinned to `y = NH` with `.clipped()`** | Works. Use where a `Canvas` isn't involved. |
+
+So:
+- Clip at the **top of the render**, once, structurally. Never rely on every draw
+  call remembering to stay in bounds.
+- Never put the notch silhouette through more than one rasterized pass.
+- Verify by **cropping the render to the notch region at full resolution and
+  measuring pixels.** A shrunk overview will not show a 2 pt bleed. This is a
+  Phase 2 gate, not a code review item.
+
+
 ---
 
 ## 4. Drag handling
