@@ -1038,7 +1038,144 @@ Not done until every one of these is recorded on the real machines.
 
 ---
 
-## 13. Open decisions
+## 13. Research ledger
+
+Research is done. This records what is settled so nobody re-litigates it, and —
+more usefully — what research *cannot* answer, so those go to Phase 2 as
+prototype tasks rather than as more reading.
+
+### Settled — do not re-research
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Notch geometry on the target Mac | 185 × 32 pt; origin from `auxiliaryTopLeftArea.width`; 0.5 pt left of centre | Measured directly (§3.1) |
+| Published notch tables | Wrong for the 16" (they say 220 × 38) | Contradicted by measurement |
+| Notch silhouette path | Kai Azim's `NotchShape`, two quad curves per side | Read in three codebases, byte-identical |
+| Window posture | Clicky's `OverlayWindow` + `canBecomeKey/Main = false` | Source read (§2) |
+| Collection behaviour | `[.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]` | Identical in every shipping notch app read |
+| Transparent view misses Finder drags | Real; needs `opacity(0.001)`, and `window.alphaValue` must stay `1` | NotchDrop + boring.notch, independently |
+| Drop-in-a-tray-icon on Windows | **Impossible.** No drop-target message exists | Microsoft statements + API surface |
+| Windows framework | WPF + `H.NotifyIcon.Wpf`; WinUI 3 has no tray API at all | MS issue tracker |
+| Discovery mechanism | Own UDP multicast, not mDNS | Windows has no usable responder; LocalSend reached the same conclusion |
+| Why transfers went one-way | Windows Public-profile inbound is dropped silently at the WFP layer; `TcpListener.Start()` still succeeds | MS docs |
+| Identity model | Device ID = SHA-256 of own self-signed cert | Syncthing |
+| Keychain launch prompts | Caused by unstable code signature or delete+recreate, not by accessibility constants | Apple docs + forums |
+| Haptic pattern for a drag lock | `.alignment` — Apple documents it for exactly this | Apple docs |
+| Reduce Motion obligations | Apple's 5-bullet HIG checklist; two bullets hit us | HIG, quoted |
+| macOS 26 APIs available here | `ConcentricRectangle`, `.continuous`, `Canvas`+`alphaThreshold`, `glassEffect` | Compiled against `arm64-apple-macos26.0` |
+| NFD/NFC filename corruption | Real; normalise to NFC at the Windows write boundary only | MS docs + Unicode UAX-15 |
+
+### Unresolved — and only a prototype can settle them
+
+These are Phase 2 spike tasks, each timeboxed. **Do not answer them with more
+web research.**
+
+1. **The 27"-above-the-notch seam.** How does the cursor actually behave crossing
+   the top edge mid-drag, and does the 120 ms sticky-arm grace hold? Needs the
+   second display physically connected. This is the single biggest unknown and
+   nothing published covers it.
+2. **Does `opacity(0.001)` still work on macOS 26.5?** Every source for this is
+   from older releases. Verify on this exact OS before designing around it, and
+   find the actual threshold.
+3. **Haptic timing under a live drag.** Apple documents that feedback is
+   suppressed when the user is not touching the trackpad. During a drag they
+   *are* touching it — confirm the lock haptic actually fires, and that it does
+   not double-fire on re-entry.
+4. **The 0.5 pt centring offset on the 27".** Confirmed on the built-in panel;
+   check whether an external display's geometry introduces its own rounding.
+5. **Menu-bar clickability under our exact window.** Every reference app relies
+   on "nothing happens to claim those pixels." We assert `ignoresMouseEvents`
+   instead — verify by clicking every status item with Sticky running.
+6. **Real throughput and the honest size ceiling** on this LAN, which sets the
+   v1 limit (§15.2).
+7. **macOS 26.3+ overlay regression.** A reported regression makes high-level
+   windows intercept events across their whole transparent area. We sit at
+   `.statusBar + 8`, below the affected range — confirm on 26.5.
+
+---
+
+## 14. How this gets built — Codex and subagents
+
+The work is executed by agents. That is a constraint on how the plan is written,
+not an afterthought: every phase gate above is machine-checkable on purpose.
+
+### 14.1 Repo files that make agents behave
+
+Landing in Phase 1, before any feature work:
+
+- **`AGENTS.md`** at the root — the contract every agent reads first. Contains
+  the §3.2 geometry law, the banned-API list, the design-token rule, and the
+  phase gates. Short, absolute, no rationale (rationale lives here).
+- **`CLAUDE.md`** — pointer to `AGENTS.md` plus build/test commands.
+- **`docs/PROTOCOL.md`** — the single wire-format source of truth. Mac and
+  Windows agents both read it and neither may extend it unilaterally.
+- **`docs/TOKENS.md`** — generated from `DesignSystem.swift`, so a Windows agent
+  can match colours and language without reading Swift.
+
+### 14.2 The lint is the real supervisor
+
+The §10.7 CI lint exists because agents optimise for the immediate task. An agent
+told "make the notch open when a drag starts" will reach for a global mouse
+monitor, because that is the most obvious solution and three reference codebases
+do it. The lint is what makes that impossible rather than merely discouraged.
+
+Banned outright, failing CI: `addGlobalMonitorForEvents`, `CGEvent.tapCreate`,
+`AXIsProcessTrusted`, `globalShortcut`, `osascript`, `NSApp.activate`, `dlopen`,
+any `_`-prefixed selector, literal colours and radii in view files, hardcoded
+notch dimensions, spring constants outside the animation file.
+
+### 14.3 Decomposition
+
+Phases are sequential and gated; **work inside a phase parallelises**.
+
+| Phase | Parallel tracks | Notes |
+|---|---|---|
+| 1 | (a) strip Electron · (b) Swift scaffold · (c) .NET scaffold · (d) CI lint | (d) merges first |
+| 2 | (a) `NotchGeometry` + shape · (b) panel + hitbox · (c) state machine on mock data · (d) menu-bar item | (a) blocks (b) and (c) |
+| 3 | (a) protocol impl Mac · (b) protocol impl Windows · (c) round-trip harness | Both read `docs/PROTOCOL.md`; (c) written **first**, by a third agent |
+| 4 | (a) pairing UX · (b) TLS pinning both sides · (c) hostile-input suite | |
+| 5 | (a) reconnect logic · (b) firewall detection · (c) lifecycle test matrix | |
+| 6 | (a) motion · (b) haptics · (c) Windows polish | Single owner for (a) — motion by committee is how it starts looking vibecoded |
+| 7 | three critics in parallel | |
+
+### 14.4 Rules for delegated work
+
+- **The test harness is written before the implementation, by a different agent.**
+  Phase 3's round-trip harness is authored by an agent that has not seen either
+  transport implementation. An agent that writes both the code and its test will
+  write a test the code passes.
+- **No agent implements both sides of the protocol.** Two independent readings of
+  `docs/PROTOCOL.md` is the point — it catches ambiguity in the spec, which is
+  where cross-platform bugs live.
+- **Geometry, security, and motion are single-owner.** These are the three areas
+  where a merge of two reasonable approaches produces something incoherent.
+- **Every task states its gate.** Not "make the notch look good" but "zero pixels
+  outside the cutout in a screenshot diff; assertion passes." A task without a
+  machine-checkable exit condition does not get delegated.
+- **Screenshot diffs, not opinions.** Phase 2 and 6 verification is a captured
+  frame compared against a reference, because "looks right" does not survive
+  delegation.
+- **Errors are never swallowed.** The old build had 13 empty catch blocks. Any
+  new empty catch fails review. If a failure is genuinely expected, it is logged
+  with which branch was taken (§4.4).
+
+### 14.5 What is never delegated
+
+- The decision in §15.6 (transient portal vs. persistent tray) — product shape.
+- Accepting a phase gate. A gate is passed when the evidence exists, and a human
+  looks at the evidence.
+- Anything that would add a permission prompt. If an agent concludes it needs
+  Accessibility, that is escalated, not implemented.
+
+### 14.6 Escalation
+
+Three strikes: an agent that fails the same gate twice stops and writes up what
+it tried. It does not try a third approach unsupervised — that is how the private
+`_setCanExcessOverlap:` selector got into the old build.
+
+---
+
+## 15. Open decisions
 
 1. **Repo strategy.** Plan assumes branch `rebuild/native`, history kept, merged
    to `main` when Phase 3 passes. Alternative: rebuild directly on `main` and tag
