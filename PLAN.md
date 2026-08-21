@@ -1209,41 +1209,79 @@ it tried. It does not try a third approach unsupervised — that is how the priv
 
 ---
 
-## 15. Open decisions
+## 15. Decisions — locked
 
-1. **Repo strategy.** Plan assumes branch `rebuild/native`, history kept, merged
-   to `main` when Phase 3 passes. Alternative: rebuild directly on `main` and tag
-   the Electron version as `v0-electron` first.
-2. **Transfer ceiling for v1.** Proposing a tested 2 GB session limit, raised only
-   after the large-file and disk-space tests pass. The old 8 GB claim was never
-   verified.
-3. **Windows drop widget placement.** Always-visible edge tab (discoverable,
-   always there) vs. appears-on-drag (cleaner, needs a low-level mouse hook).
-   Recommending the always-visible tab for v1 — simpler, no hook, no AV suspicion.
-4. **Code signing.** macOS needs a paid Developer ID for notarization. Windows:
-   Azure Trusted Signing at ~$10/month is the cheapest real path, but individual
-   eligibility is US/Canada only. Worth confirming which applies.
-5. **Quarantine xattr** on received files — suppress or preserve?
-6. **Transient portal vs. persistent tray — the one that changes the product.**
-   §0 and §4 specify a portal that appears only during a drag or transfer and is
-   gone the moment it finishes. The Nook Tray references you sent are a
-   **persistent** tray: files land there and stay, accumulating as chips until
-   you clear them.
+These were open. They are now settled so the build can start. Any of them can be
+reopened, but not by silence — someone has to argue against them.
 
-   These are genuinely different products, and it is your call:
+**15.1 Visual direction: v8.** White light only — there is no accent colour in
+this app. The spill borrows its hue from the file's own pixels, the way the
+Dynamic Island borrows album art. The notch is elastic: it extends 3pt on hover,
+8pt tall and 14pt wide when armed, with both corner radii animating as
+`animatableData`, and settles with a small overshoot. Motion is 44-sample
+exposure blur, never a `scaleY` stretch.
 
-   - **Transient portal (as specified).** Nothing to manage, nothing to forget,
-     no state on screen. The failure mode of the old build was becoming a
-     dashboard, and transience is the structural defence against that.
-   - **Persistent tray (the Nook look you liked).** Drop several files across a
-     few minutes, then send the batch. Genuinely useful for "gather then send",
-     and it is what the reference actually does. Cost: it is a stateful surface
-     that lives on screen, needs a retention policy, and is one feature away from
-     becoming a shelf again.
-   - **Middle option, which I would recommend:** transient by default, but a
-     transfer in flight stays visible and accepts more files dropped onto it —
-     so a batch builds naturally during the send and the surface still vanishes
-     when the transfer completes. You get the chip row and the batching without
-     a permanent tray.
+**15.2 The five metaphor concepts are dead.** Mechanical aperture, liquid
+coalescence, pure light, magnetic field, physical post — all rendered, all
+rejected. Two failed on execution (liquid softens the notch itself; the iris is
+invisible at 24pt) and the rest read as *themed* rather than native. Apple's
+actual language is restrained and physical without being metaphorical. The
+research is kept in `docs/CONCEPTS.md`; the direction is not.
 
-   Say which and I will fix §0 and §4 to match before Phase 2 starts.
+**15.3 The literal NameDrop screen-warp is OUT of v1.**
+NameDrop bends the whole top of the screen because the OS is distorting its own
+pixels. A third-party overlay cannot do that. Verified on this machine:
+- `screencapture` is blocked without a Screen Recording grant, so any
+  capture-based approach needs a permission prompt and a permanent purple
+  menu-bar indicator. Banned by AGENTS.md §1.
+- `CALayer.backgroundFilters` still *accepts and retains* a `CIBumpDistortion`,
+  and all twelve distortion filters are present — but it is documented as having
+  broken around Big Sur, custom filters stopped compositing in 12.5, and there is
+  no authoritative statement for macOS 26.
+- `NSVisualEffectView.behindWindow` **is** supported, which proves the OS samples
+  the desktop behind a window with no app permission. Backdrop sampling is not
+  the barrier; supplying our own filter is.
+- `NSGlassEffectView` exists with public `cornerRadius`, `style`, `tintColor`,
+  `contentView` — and a private `_path` we will not touch.
+
+**The call:** do not build the signature moment on `backgroundFilters`. It is
+undocumented-adjacent behaviour that may already be dead and can die on any OS
+update — precisely the failure that put a private `_setCanExcessOverlap:`
+selector in the old build. Liquid Glass refraction is the sanctioned path and
+goes in **Phase 6 as an enhancement, never a dependency**. If it works, the
+portal gains a real backdrop bend. If it doesn't, v1 is unaffected.
+
+**15.4 The portal is transient, with in-flight batching.** It appears on drag,
+accepts further files dropped onto an transfer already in flight, and is gone
+when the transfer completes. No persistent tray. This keeps the chip row and the
+gather-then-send workflow without a stateful surface that can drift back into
+being a dashboard.
+
+**15.5 Windows drop target: an always-visible edge tab**, bottom-centre, sitting
+directly above the taskbar and horizontally aligned to the Mac's notch. Not
+appears-on-drag — that needs a low-level mouse hook, which is added complexity
+and AV suspicion for a discoverability gain we can get with a small permanent tab.
+
+**15.6 v1 transfer ceiling: 2 GB**, tested, raised only after the large-file and
+disk-space gates pass. The old build's unverified 8 GB claim is not inherited.
+
+**15.7 Repo: branch `rebuild/native`**, history preserved, merged to `main` when
+the Phase 3 round-trip gate passes.
+
+**15.8 The name stays "Sticky" for now.** It is the wrong name — it describes
+things that adhere and stay, and this is about a crossing — but renaming is not
+blocking and the repo, remote and docs all reference it. Revisit before any
+public release.
+
+---
+
+## 16. Still genuinely open
+
+Only two, and neither blocks Phase 1 or 2:
+
+1. **Does Liquid Glass refract the desktop from an overlay panel?** Decides
+   whether §15.3's Phase 6 enhancement is possible at all. A live-window spike,
+   not more reading.
+2. **The 27" seam.** How the cursor behaves crossing the display boundary
+   mid-drag, and whether the 120 ms sticky-arm holds. Needs the second display
+   connected. Already SPIKE-2A in `docs/TASKS.md`.
