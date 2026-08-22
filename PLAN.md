@@ -1214,8 +1214,18 @@ it tried. It does not try a third approach unsupervised — that is how the priv
 These were open. They are now settled so the build can start. Any of them can be
 reopened, but not by silence — someone has to argue against them.
 
-**15.1 Visual direction: v8.** White light only — there is no accent colour in
-this app. The spill borrows its hue from the file's own pixels, the way the
+**15.1 Visual direction: v8/v9. Warm white, never a rainbow.**
+Researched: NameDrop's glow is **warm monochrome — white into gold/amber, with no
+pink, purple or blue anywhere.** Two independent recreations converge on this (a
+Figma remake reading cream→gold; dkun7944's Metal shader adding only red+green
+then blending to white). Apple publishes no hex, so the working values are
+**`#FFF6E5` → `#FFC178`**, labelled as synthesis rather than an Apple number.
+
+Critically, this is **not** the Apple Intelligence glow (`#BC82F3`, `#F5B9EA`,
+`#8D9FFF`, `#FF6778`, `#FFBA71`) — that is a separate system that shipped a year
+later, and using it would make a file-transfer tool read as an AI feature.
+
+There is no accent colour in this app. The spill borrows its hue from the file's own pixels, the way the
 Dynamic Island borrows album art. The notch is elastic: it extends 3pt on hover,
 8pt tall and 14pt wide when armed, with both corner radii animating as
 `animatableData`, and settles with a small overshoot. Motion is 44-sample
@@ -1228,28 +1238,57 @@ invisible at 24pt) and the rest read as *themed* rather than native. Apple's
 actual language is restrained and physical without being metaphorical. The
 research is kept in `docs/CONCEPTS.md`; the direction is not.
 
-**15.3 The literal NameDrop screen-warp is OUT of v1.**
-NameDrop bends the whole top of the screen because the OS is distorting its own
-pixels. A third-party overlay cannot do that. Verified on this machine:
-- `screencapture` is blocked without a Screen Recording grant, so any
-  capture-based approach needs a permission prompt and a permanent purple
-  menu-bar indicator. Banned by AGENTS.md §1.
-- `CALayer.backgroundFilters` still *accepts and retains* a `CIBumpDistortion`,
-  and all twelve distortion filters are present — but it is documented as having
-  broken around Big Sur, custom filters stopped compositing in 12.5, and there is
-  no authoritative statement for macOS 26.
-- `NSVisualEffectView.behindWindow` **is** supported, which proves the OS samples
-  the desktop behind a window with no app permission. Backdrop sampling is not
-  the barrier; supplying our own filter is.
-- `NSGlassEffectView` exists with public `cornerRadius`, `style`, `tintColor`,
-  `contentView` — and a private `_path` we will not touch.
+**15.3 The NameDrop screen-warp — settled with hands-on proof.**
 
-**The call:** do not build the signature moment on `backgroundFilters`. It is
-undocumented-adjacent behaviour that may already be dead and can die on any OS
-update — precisely the failure that put a private `_setCanExcessOverlap:`
-selector in the old build. Liquid Glass refraction is the sanctioned path and
-goes in **Phase 6 as an enhancement, never a dependency**. If it works, the
-portal gains a real backdrop bend. If it doesn't, v1 is unaffected.
+Verified on this machine (macOS 26.5.1, Xcode 26.6), by offscreen rendering
+through `NSView.cacheDisplay(in:to:)` in a never-shown window — no screen
+capture, no permission:
+
+- **`CALayer.backgroundFilters` is a no-op.** Baseline and filtered renders diff
+  bit-for-bit identical with `CIBumpDistortion` *and* `CIGaussianBlur`. The layer
+  composites and its border draws; the filter does nothing. This reproduces a
+  regression first reported in Big Sur (Apple Developer Forums 680587, TSI
+  769573020, never acknowledged) and still broken five years later. **Do not
+  build on it. It is not risky — it is already dead.**
+- **`CARenderer(mtlTexture:)` also appears non-functional headless on 26.5** —
+  every storage mode, an external command queue, a `CVDisplayLink` timestamp and
+  a live `NSApplication` run loop all produced an all-zero target texture even
+  for a trivial red layer. Worth knowing before anyone reaches for it.
+- **No sanctioned route reaches the desktop.** `CALayer.filters` only affects its
+  own subtree; SwiftUI's `.colorEffect` / `.distortionEffect` / `.layerEffect`
+  sample only the view's own rasterised content; `.backgroundExtensionEffect`
+  mirrors the view's own edges; `CAMetalLayer` has no backdrop source.
+  `NSVisualEffectView.behindWindow` genuinely samples cross-window content but
+  exposes only Apple's closed material enum — no filter injection point.
+- **The only shipping precedent is capture-based.** RetroVisor warps the desktop
+  behind a floating window via ScreenCaptureKit and states it is blocked without
+  Screen Recording permission.
+
+**The unlock — SwiftUI's glass takes arbitrary concave shapes:**
+
+```swift
+public func glassEffect(_ glass: Glass = .regular,
+                        in shape: some Shape = DefaultGlassEffectShape()) -> some View
+```
+
+`some Shape`, no whitelist. Verified by compiling *and rendering* our notch
+silhouette — concave shoulders and all — through it; the glass follows the path
+exactly rather than rounding to a bounding rect. AppKit's `NSGlassEffectView`
+exposes only `contentView`, `cornerRadius`, `tintColor`, `style`, so **build the
+portal's glass in SwiftUI and host it in an `NSHostingView`**, not in AppKit.
+
+Apple documents the optical behaviour as "Lensing" (WWDC25 session 219):
+previous materials *scattered* light, Liquid Glass *bends, shapes and
+concentrates* it, via a 2D displacement map, with refraction strength scaling
+with element size. It could not be pixel-verified here because the material
+degrades to a flat fill when snapshotted offscreen — it needs a live WindowServer
+connection — but field comparisons between apps using it and apps falling back to
+`NSVisualEffectView` describe the difference as visibly more than blur.
+
+**The call: Liquid Glass, shaped to the notch. No Screen Recording.** The
+permission cost is permanent and visible in the menu bar; the fidelity gain is a
+nuance. Revisit only if the live spike shows the lensing is imperceptible on an
+overlay panel.
 
 **15.4 The portal is transient, with in-flight batching.** It appears on drag,
 accepts further files dropped onto an transfer already in flight, and is gone
