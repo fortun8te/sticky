@@ -20,7 +20,6 @@ final class NotchWindowController {
     private var screen: NSScreen?
     private let viewModel: NotchViewModel
     private var screenChangeObserver: NSObjectProtocol?
-    private var hoverWatchdog: Timer?
     private var stateSubscription: AnyCancellable?
     private var expansionSubscription: AnyCancellable?
     private var clickAwayToken: Any?
@@ -49,7 +48,6 @@ final class NotchWindowController {
     }
 
     func destroy() {
-        stopHoverWatchdog()
         stopExpansionMonitors()
         expansionSubscription?.cancel()
         expansionSubscription = nil
@@ -68,17 +66,10 @@ final class NotchWindowController {
 
     private func observeHoverState() {
         stateSubscription?.cancel()
-        stateSubscription = viewModel.$state
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard let self else { return }
-
-                if case .hover = state {
-                    self.startHoverWatchdog()
-                } else {
-                    self.stopHoverWatchdog()
-                }
-            }
+        stateSubscription = nil
+        // No polling watchdog. The old one re-checked every 0.12 s and could
+        // collapse a valid hover, producing rapid open/close flicker while the
+        // cursor sat on the notch. SwiftUI onHover handles enter/exit directly.
     }
 
     private func observeExpansion() {
@@ -147,49 +138,6 @@ final class NotchWindowController {
         if let token = escapeToken { NSEvent.removeMonitor(token); escapeToken = nil }
     }
 
-    private func startHoverWatchdog() {
-        hoverWatchdog?.invalidate()
-        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.validatePointerStillInside()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        hoverWatchdog = timer
-    }
-
-    private func stopHoverWatchdog() {
-        hoverWatchdog?.invalidate()
-        hoverWatchdog = nil
-    }
-
-    private func validatePointerStillInside() {
-        guard !viewModel.isExpanded else { return }
-        guard let window,
-              case .hover = viewModel.state,
-              let hostingView = window.contentView as? NotchHostingView,
-              let provider = hostingView.interactiveFrameProvider
-        else {
-            return
-        }
-
-        let viewFrame = provider(hostingView.bounds)
-        // View coordinates are top-left origin; window frames are bottom-left.
-        // Mixing them was silently shifting this rect ~60pt down, so the
-        // watchdog collapsed valid hovers and caused the flicker loop.
-        let globalFrame = NSRect(
-            x: window.frame.minX + viewFrame.minX,
-            y: window.frame.maxY - viewFrame.maxY,
-            width: viewFrame.width,
-            height: viewFrame.height
-        )
-
-        // Crossing to a display above/below can skip SwiftUI's mouse-exited
-        // callback. The cursor location is the source of truth here.
-        if globalFrame.contains(NSEvent.mouseLocation) == false {
-            viewModel.forceCollapseIfHovering()
-        }
-    }
 
     func rebuild() {
         tearDownWindow()
