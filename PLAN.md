@@ -1290,6 +1290,33 @@ permission cost is permanent and visible in the menu bar; the fidelity gain is a
 nuance. Revisit only if the live spike shows the lensing is imperceptible on an
 overlay panel.
 
+**15.3a Amendment — frame-by-frame evidence changes the composition.**
+User-supplied captures of the real NameDrop animation show the chronology
+directly, and it reorders what matters:
+
+1. **Progressive blur** sweeps down from the contact edge — the screen "blurs
+   away" from the top. This is the *dominant* component, not the ripple.
+2. **A large warm-white bloom** grows around the island as the blur descends.
+3. **A droplet-like lens** forms at the contact point, visibly dispersing what
+   is around it.
+4. Content passes through where the light is; then everything recedes to rest.
+
+The parametric ripple everyone tries to recreate is the garnish, not the meal —
+and the meal is achievable without any permission:
+
+| Observed beat | Live implementation | Status |
+|---|---|---|
+| Blur wave over the desktop | `NSVisualEffectView` `.behindWindow` + **animated `maskImage`** (public API since 10.10) — Apple's own backdrop blur, shaped and swept by us | Sanctioned, no permission |
+| Bloom at the aperture | Our own additive light (warm white → amber, §15.1) | Ours |
+| Droplet lens | `.glassEffect(.clear, in: DropletShape())` — real Liquid Glass lensing in an arbitrary shape (§15.3) | Sanctioned |
+| File posting through | 40-sample exposure-blur streak (v7) | Ours |
+| Parametric ripple displacement | Not achievable without Screen Recording | The one omission |
+
+During the transfer moment (<1 s) the blur wave may wash over the menu bar —
+exactly as NameDrop washes the status bar. The **hitbox never grows** and the
+camera cutout shows only the black notch; the wash is light, not content. Mocked
+in `v11` (scratchpad); becomes the Phase 6 motion spec.
+
 **15.4 The portal is transient, with in-flight batching.** It appears on drag,
 accepts further files dropped onto an transfer already in flight, and is gone
 when the transfer completes. No persistent tray. This keeps the chip row and the
