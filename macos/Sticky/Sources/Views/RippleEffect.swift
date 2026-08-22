@@ -106,8 +106,8 @@ struct NameDropGlow: View {
                 Path(ellipseIn: glowRect),
                 with: .radialGradient(
                     Gradient(stops: [
-                        .init(color: Color.stickyCream.opacity(0.22 * intensity), location: 0),
-                        .init(color: Color.stickyAmber.opacity(0.08 * intensity), location: 0.32),
+                        .init(color: Color.stickyIvory.opacity(0.20 * intensity), location: 0),
+                        .init(color: Color.stickyAccent.opacity(0.10 * intensity), location: 0.32),
                         .init(color: .clear, location: 1)
                     ]),
                     center: origin,
@@ -152,10 +152,12 @@ extension View {
 }
 
 extension Color {
-    static let stickyCream = Color(red: 1.0, green: 0.965, blue: 0.898)
-    static let stickyAmber = Color(red: 1.0, green: 0.757, blue: 0.471)
+    /// Apple-utility blue (Finder/AirDrop family) — calm, not warning-yellow.
+    static let stickyAccent = Color(red: 0.35, green: 0.62, blue: 1.0)
+    /// Soft cool-white for highlights instead of warm cream.
+    static let stickyIvory = Color(red: 0.92, green: 0.96, blue: 1.0)
 }
 
 extension NSColor {
-    static let stickyAmber = NSColor(red: 1.0, green: 0.757, blue: 0.471, alpha: 1)
+    static let stickyAccent = NSColor(red: 0.35, green: 0.62, blue: 1.0, alpha: 1)
 }

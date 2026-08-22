@@ -16,7 +16,7 @@ struct ShelfView: View {
                             FileRow(
                                 url: item.url,
                                 subtitle: "Ready to send",
-                                accent: Color.stickyAmber,
+                                accent: Color.stickyAccent,
                                 primaryAction: (icon: "paperplane.fill", label: "Send", handler: { viewModel.sendFiles([item.url]) }),
                                 secondaryActions: [
                                     RowAction(icon: "eye", label: "Quick Look", handler: { ShelfWindowController.shared.previewURLs([item.url]) }),
@@ -41,7 +41,7 @@ struct ShelfView: View {
                                 url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
                                 titleOverride: transfer.items.count == 1 ? transfer.items[0].url.lastPathComponent : "\(transfer.items.count) items",
                                 subtitle: transfer.attempts == 0 ? "Queued" : "Retried \(transfer.attempts)× · kept safe",
-                                accent: Color.stickyCream.opacity(0.8),
+                                accent: Color.stickyIvory.opacity(0.8),
                                 primaryAction: (icon: "arrow.clockwise", label: "Retry all", handler: { viewModel.processPendingQueue(force: true) }),
                                 secondaryActions: [
                                     RowAction(icon: "trash", label: "Drop from queue", handler: { viewModel.removePendingTransferPublic(id: transfer.id) }, role: .destructive)
@@ -209,7 +209,7 @@ private struct ClipRow: View {
         HStack(spacing: 12) {
             Image(systemName: "text.alignleft")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isCurrent ? Color.stickyAmber : Color.secondary)
+                .foregroundStyle(isCurrent ? Color.stickyAccent : Color.secondary)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -231,7 +231,7 @@ private struct ClipRow: View {
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.stickyAmber)
+                .tint(Color.stickyAccent)
                 .transition(.opacity)
             }
         }

@@ -15,7 +15,7 @@ struct NotchView: View {
             } else {
                 Rectangle()
                     .fill(Color.black.opacity(0.001))
-                    .frame(width: interactionSize.width, height: interactionSize.height)
+                    .frame(width: interactionSize.width, height: interactionSize.height + 26) // cover the hover bloom too
                     .contentShape(Rectangle())
                     .onDrop(of: [.fileURL], delegate: viewModel)
                     .onTapGesture {
@@ -82,7 +82,7 @@ struct NotchView: View {
         let size = CGSize(width: dimensions.width + 12, height: dimensions.height)
 
         return TimelineView(
-            .animation(minimumInterval: 1 / 30, paused: reduceMotion || warpIntensity < 0.03)
+            .animation(minimumInterval: 1 / 30, paused: reduceMotion)
         ) { context in
             let phase = warpPhase(for: context.date)
             let intensity = warpIntensity
@@ -154,9 +154,12 @@ struct NotchView: View {
     }
 
     private var warpIntensity: CGFloat {
+        if viewModel.isExpanded { return 0.18 }
+        // Idle keeps a whisper of life — the notch breathes instead of dying.
+        let idleBase: CGFloat = reduceMotion ? 0 : 0.10
         switch displayState {
         case .idle:
-            return 0
+            return idleBase
         case .hover:
             return 0
         case .armed:
@@ -266,7 +269,7 @@ struct NotchView: View {
 
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 17))
-                    .foregroundStyle(Color.stickyAmber.opacity(0.9))
+                    .foregroundStyle(Color.stickyAccent.opacity(0.9))
                     .modifier(ArmedPullSymbol(reduceMotion: reduceMotion))
         }
     }
@@ -299,7 +302,7 @@ struct NotchView: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 15))
-                    .foregroundStyle(Color.stickyAmber)
+                    .foregroundStyle(Color.stickyAccent)
                     .accessibilityHidden(true)
 
                 Text(fileName ?? "Sending")
@@ -325,8 +328,8 @@ struct NotchView: View {
                         .fill(
                             LinearGradient(
                                 stops: [
-                                    .init(color: Color.stickyCream, location: 0),
-                                    .init(color: Color.stickyAmber, location: 0.5),
+                                    .init(color: Color.stickyIvory, location: 0),
+                                    .init(color: Color.stickyAccent, location: 0.5),
                                     .init(color: Color(red: 1.0, green: 0.55, blue: 0.35), location: 1.0)
                                 ],
                                 startPoint: .topLeading,
@@ -361,7 +364,7 @@ struct NotchView: View {
 
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.stickyAmber.opacity(0.88))
+                .foregroundStyle(Color.stickyAccent.opacity(0.88))
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)
@@ -372,7 +375,7 @@ struct NotchView: View {
         HStack(spacing: 9) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 17))
-                    .foregroundStyle(Color.stickyCream)
+                    .foregroundStyle(Color.stickyIvory)
                 .modifier(SuccessCheckSymbol(reduceMotion: reduceMotion, trigger: count))
                 .accessibilityHidden(true)
 
@@ -388,7 +391,7 @@ struct NotchView: View {
         HStack(spacing: 9) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(Color.stickyAmber.opacity(0.92))
+                .foregroundStyle(Color.stickyAccent.opacity(0.92))
                 .accessibilityHidden(true)
 
             Text(reason?.isEmpty == false ? reason! : "Transfer failed")
@@ -403,7 +406,7 @@ struct NotchView: View {
         HStack(spacing: 10) {
                 Image(systemName: kind == .files ? "arrow.down.circle.fill" : "text.bubble.fill")
                     .font(.system(size: 17))
-                    .foregroundStyle(Color.stickyAmber)
+                    .foregroundStyle(Color.stickyAccent)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -543,8 +546,8 @@ private struct FilamentHandoff: View {
                         pulse,
                         with: .color(
                             direction == .sending
-                                ? Color.stickyAmber.opacity(0.34 * fade)
-                                : Color.stickyCream.opacity(0.38 * fade)
+                                ? Color.stickyAccent.opacity(0.34 * fade)
+                                : Color.stickyIvory.opacity(0.38 * fade)
                         )
                     )
                     canvasContext.addFilter(.blur(radius: 0.4))
@@ -686,7 +689,7 @@ struct ExpandedPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "tray.full.fill")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.stickyAmber)
+                .foregroundStyle(Color.stickyAccent)
 
             Text("Sticky")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -818,19 +821,23 @@ struct ShelfContentView: View {
     }
 
     private func sectionHeader(_ title: String, detail: String?) -> some View {
-        HStack {
+        HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.55))
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.5))
                 .textCase(.uppercase)
-                .kerning(0.5)
+                .kerning(0.18)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2.5)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
             if let detail {
                 Text(detail)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .font(.system(size: 9.5, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.32))
             }
             Spacer()
         }
+        .padding(.bottom, -4)
     }
 }
 
@@ -868,15 +875,35 @@ private struct NotchFileRow: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 4) {
-                rowButton("paperplane.fill", tint: Color.stickyAmber, action: onSend)
+                rowButton("paperplane.fill", tint: Color.stickyAccent, action: onSend)
                 rowButton("trash", tint: Color.white.opacity(0.45), action: onRemove)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(hovering ? 0.09 : 0.05)))
+        .background(rowShell)
+        .scaleEffect(hovering ? 1.015 : 1.0)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
+    }
+
+    /// Double-bezel: outer hairline tray, inner raised core with a top highlight.
+    private var rowShell: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(0.045))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(hovering ? 0.14 : 0.08), lineWidth: 0.5)
+            )
+            .overlay(
+                // inset top highlight — machined-glass look
+                LinearGradient(
+                    colors: [Color.white.opacity(hovering ? 0.10 : 0.06), .clear],
+                    startPoint: .top, endPoint: .init(x: 0.5, y: 0.35)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .padding(0.5)
+            )
     }
 
     @ViewBuilder
@@ -913,10 +940,14 @@ private struct NotchFileRow: View {
     private func rowButton(_ symbol: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(tint)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(tint.opacity(0.9))
                 .frame(width: 26, height: 26)
-                .background(Circle().fill(tint.opacity(0.12)))
+                .background(
+                    Circle()
+                        .fill(tint.opacity(0.10))
+                        .overlay(Circle().strokeBorder(tint.opacity(0.22), lineWidth: 0.5))
+                )
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -934,7 +965,7 @@ private struct NotchClipRow: View {
         HStack(spacing: 10) {
             Image(systemName: "text.alignleft")
                 .font(.system(size: 11))
-                .foregroundStyle(isCurrent ? Color.stickyAmber : Color.white.opacity(0.4))
+                .foregroundStyle(isCurrent ? Color.stickyAccent : Color.white.opacity(0.4))
 
             Text(previewText)
                 .font(.system(size: 11, design: .rounded))
@@ -947,18 +978,22 @@ private struct NotchClipRow: View {
             Button(action: onSend) {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.stickyAmber)
+                    .foregroundStyle(Color.stickyAccent)
                     .frame(width: 26, height: 26)
-                    .background(Circle().fill(Color.stickyAmber.opacity(0.12)))
+                    .background(Circle().fill(Color.stickyAccent.opacity(0.12)))
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(hovering ? 0.09 : 0.05)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(0.045))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(hovering ? 0.14 : 0.08), lineWidth: 0.5)))
+        .scaleEffect(hovering ? 1.015 : 1.0)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
     }
 
     private var previewText: String {

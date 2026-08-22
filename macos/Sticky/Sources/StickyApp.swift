@@ -401,7 +401,7 @@ final class StatusBarDropArea: NSView {
             options: [.urlReadingFileURLsOnly: true]
         )
         isDragActive = true
-        (superview as? NSStatusBarButton)?.contentTintColor = accepted ? .stickyAmber : nil
+        (superview as? NSStatusBarButton)?.contentTintColor = accepted ? .stickyAccent : nil
         return accepted ? .copy : []
     }
 
