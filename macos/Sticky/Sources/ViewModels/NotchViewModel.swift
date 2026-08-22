@@ -50,7 +50,12 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
 
     override init() {
         clipboardSyncEnabled = UserDefaults.standard.bool(forKey: "sticky.clipboardSync")
+        slotText = ""
         super.init()
+        slotText = UserDefaults.standard.string(forKey: "sticky.slot.text") ?? ""
+        if let data = UserDefaults.standard.data(forKey: "sticky.slot.image") {
+            slotImage = NSImage(data: data)
+        }
         restoreShelf()
         restorePendingTransfers()
     }
@@ -301,6 +306,75 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     /// App layer hooks: outgoing sync text + notification that settings changed.
     var clipboardSyncSender: ((String) -> Void)?
     var onClipboardSyncChanged: ((Bool) -> Void)?
+
+    // MARK: - The Slot (manual clipboard pocket)
+    @Published var slotText: String {
+        didSet { UserDefaults.standard.set(slotText, forKey: "sticky.slot.text") }
+    }
+    @Published var slotImage: NSImage? {
+        didSet { persistSlotImage() }
+    }
+    private var suppressSlotSync = false
+
+    func writeSlot(text: String) {
+        guard text != slotText else { return }
+        suppressSlotSync = true
+        slotText = text
+        suppressSlotSync = false
+        clipboardSyncSender?(text)
+        hapticService?.fire(.tick)
+    }
+
+    func writeSlot(image: NSImage) {
+        slotImage = image
+        if let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            UserDefaults.standard.set(png, forKey: "sticky.slot.image")
+        }
+        hapticService?.fire(.tick)
+    }
+
+    func pasteIntoSlot() {
+        let pb = NSPasteboard.general
+        if let img = NSImage(pasteboard: pb) {
+            writeSlot(image: img)
+            return
+        }
+        if let str = pb.string(forType: .string), !str.isEmpty {
+            writeSlot(text: str)
+        }
+    }
+
+    func copySlotToPasteboard() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        if let img = slotImage {
+            pb.writeObjects([img])
+        } else if !slotText.isEmpty {
+            pb.setString(slotText, forType: .string)
+        }
+    }
+
+    func receiveRemoteSlot(text: String) {
+        guard text != slotText else { return }
+        suppressSlotSync = true
+        slotText = text
+        suppressSlotSync = false
+    }
+
+    private func persistSlotImage() {
+        guard !suppressSlotSync else { return }
+        guard let image = slotImage else {
+            UserDefaults.standard.removeObject(forKey: "sticky.slot.image")
+            return
+        }
+        if let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            UserDefaults.standard.set(png, forKey: "sticky.slot.image")
+        }
+    }
 
     func updatePeerAvailability(_ available: Bool) {
         peerReachable = available
