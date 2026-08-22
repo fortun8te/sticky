@@ -5,11 +5,13 @@ import SwiftUI
 
 enum NotchLayout {
     static let compactExtension: CGFloat = 34
+    static let interactivePadX: CGFloat = 24
+    static let interactivePadY: CGFloat = 30
 
     static func interactiveSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
         CGSize(
-            width: notchWidth + 32,
-            height: notchHeight + 24
+            width: notchWidth + interactivePadX * 2,
+            height: notchHeight + interactivePadY * 2
         )
     }
 }
@@ -24,7 +26,7 @@ final class NotchWindowController {
     private var expansionSubscription: AnyCancellable?
     private var clickAwayToken: Any?
     private var escapeToken: Any?
-    private static let windowPadding = CGSize(width: 80, height: 130)
+    private static let windowPadding = CGSize(width: 48, height: 0)
     private static let expandedHeight: CGFloat = 340
 
     init(viewModel: NotchViewModel) {
@@ -189,8 +191,9 @@ final class NotchWindowController {
 
     private func windowSize(on screen: NSScreen) -> NSSize {
         let notch = notchSize(on: screen)
-        let width = max(notch.width + Self.windowPadding.width, 260)
-        let height = max(notch.height + Self.windowPadding.height, 160)
+        // Window == the interactive area exactly (tap rect incl. bloom strip).
+        let width = max(notch.width + NotchLayout.interactivePadX, 220)
+        let height = max(notch.height + NotchLayout.interactivePadY + 26, 96)
         return NSSize(
             width: min(width, screen.frame.width),
             height: min(height, screen.frame.height)

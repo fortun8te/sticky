@@ -17,7 +17,7 @@ struct NotchView: View {
             } else {
                 Rectangle()
                     .fill(Color.black.opacity(0.001))
-                    .frame(width: interactionSize.width, height: interactionSize.height + 26) // cover the hover bloom too
+                    .frame(width: interactionSize.width, height: interactionSize.height + 26)
                     .contentShape(Rectangle())
                     .onDrop(of: [.fileURL], delegate: viewModel)
                     .onTapGesture {
@@ -31,7 +31,11 @@ struct NotchView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: max(geometry.rect.width + 40, 220), height: viewModel.isExpanded ? nil : interactionSize.height + 26, alignment: .top)
+        .frame(
+            width: viewModel.isExpanded ? nil : interactionSize.width,
+            height: viewModel.isExpanded ? nil : interactionSize.height + 26,
+            alignment: .top
+        )
         .ignoresSafeArea()
         .onChange(of: reduceMotion) { _, newValue in
             viewModel.reducesMotion = newValue
