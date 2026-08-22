@@ -104,7 +104,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         dropTargeting = true
         hoverTimer?.cancel()
         hoverTimer = nil
-        withMotionAnimation(response: 0.32, dampingFraction: 0.86) {
+        withMotionAnimation(response: 0.22, dampingFraction: 0.85) {
             state = .hover
         }
     }
@@ -115,18 +115,14 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
 
         if hovering {
             guard case .idle = state else { return }
-            withMotionAnimation(response: 0.32, dampingFraction: 0.88) {
+            withMotionAnimation(response: 0.22, dampingFraction: 0.85) {
                 state = .hover
             }
         } else if case .hover = state {
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, !self.dropTargeting, case .hover = self.state else { return }
-                self.withMotionAnimation(response: 0.38, dampingFraction: 0.90) {
-                    self.state = .idle
-                }
+            // Exit immediately — no grace delay.
+            withMotionAnimation(response: 0.24, dampingFraction: 0.88) {
+                state = .idle
             }
-            hoverTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: work)
         }
     }
 
