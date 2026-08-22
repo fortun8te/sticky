@@ -182,6 +182,16 @@ within 30 s of both devices becoming reachable.
 
 ## Phase 6 — motion and polish
 
+### T-600 · Motion — build the brief, plus your own take
+**deps** T-205 · **read `docs/MOTION.md` first — it is the complete handoff**
+Implement the picked glass/light variation as a live, interruptible SwiftUI
+prototype at true geometry, AND produce at least one original variation of your
+own within MOTION.md's constraints, rendered identically for side-by-side
+judgement. Iterate on your own renders at least twice before presenting.
+**Gate** PLAN §10.8 checklist on a screen recording; `grep -r "Color.clear" `
+finds no gradient endpoints; every animation retargets from presentation values
+mid-flight.
+
 ### T-601 · Motion ⊘ (single owner — motion by committee is how it starts looking vibecoded)
 
 ### SPIKE-6B · Windows blur-wave feasibility ⊘

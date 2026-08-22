@@ -1319,13 +1319,15 @@ During the transfer moment (<1 s) the blur wave may wash over the menu bar —
 exactly as NameDrop washes the status bar. The **hitbox never grows** and the
 camera cutout shows only the black notch; the wash is light, not content. Further frame evidence: besides the bloom at the aperture, **a screen-wide light
 rises from the bottom corners toward the notch and disperses the droplet
-outward.** Three treatments of that rise are mocked in
-[docs/mockups/motion-variations.jpg](docs/mockups/motion-variations.jpg) —
-A · Veil (one field, revealed bottom-up), B · Rays (two corner beams),
-C · Tide (a contracting ring centred on the aperture). **Pick pending.** The
-droplet is committed: it hangs from the aperture with a real neck, refracting a
-magnified backdrop, soft gradient rim — never a drawn ring. Becomes the Phase 6
-motion spec.
+outward.** The hanging-droplet body was
+rendered and **rejected as uncanny**; the live glass candidates are one JPG
+each in `docs/mockups/` — **A · Island** (rounded-rect plate around the notch,
+the iOS Liquid Glass widget look), **B · Chip** (compact square lens below the
+aperture), **C · Throat** (the notch itself extends and turns glass) — with the
+render rig in `docs/mockups/src/`. **Pick pending.** The complete motion
+handoff for agents, including the instruction to produce an original variation
+of their own, is [docs/MOTION.md](docs/MOTION.md). Becomes the Phase 6 motion
+spec.
 
 **15.4 The portal is transient, with in-flight batching.** It appears on drag,
 accepts further files dropped onto an transfer already in flight, and is gone
