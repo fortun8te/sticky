@@ -173,6 +173,10 @@ struct NotchView: View {
         return CGFloat(elapsed / period)
     }
 
+    private var idleHintOpacity: CGFloat {
+        viewModel.shelfFiles.isEmpty && viewModel.pendingTransfers.isEmpty ? 0.0 : 1.0
+    }
+
     private var islandDimensions: (width: CGFloat, height: CGFloat, cornerRadius: CGFloat, shadowOpacity: Double, shadowRadius: CGFloat) {
         let width = max(geometry.rect.width, 120)
         let baseHeight = max(geometry.rect.height, 22)
@@ -213,12 +217,23 @@ struct NotchView: View {
     private var islandContent: some View {
         switch displayState {
         case .idle:
-            Color.clear
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color.stickyAmber.opacity(0.85))
+                    .frame(width: 4, height: 4)
+                    .modifier(BreathingDot(reduceMotion: reduceMotion))
+                Text("Sticky")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .kerning(0.6)
+            }
+            .opacity(idleHintOpacity)
         case .hover:
             HStack(spacing: 6) {
                 Image(systemName: "tray.and.arrow.down.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(Color.stickyAmber)
+                    .modifier(ArmedPullSymbol(reduceMotion: reduceMotion))
                 Text("Drop to send")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.86))
@@ -316,11 +331,16 @@ struct NotchView: View {
                     Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [Color.stickyCream, Color.stickyAmber],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                                stops: [
+                                    .init(color: Color.stickyCream, location: 0),
+                                    .init(color: Color.stickyAmber, location: 0.5),
+                                    .init(color: Color(red: 1.0, green: 0.55, blue: 0.35), location: 1.0)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
                         )
+                        .modifier(ShimmerFill(active: !reduceMotion && progress < 1))
                         .frame(width: max(proxy.size.width * progress.clamped(to: 0...1), 4))
                 }
             }
@@ -557,6 +577,64 @@ private struct RestrainedShake: ViewModifier {
     func body(content: Content) -> some View {
         let decayedOffset = progress == 0 || progress >= 1 ? 0 : sin(progress * .pi * 4) * 3.5 * (1 - progress)
         return content.offset(x: decayedOffset)
+    }
+}
+
+private struct ShimmerFill: ViewModifier {
+    let active: Bool
+    @State private var phase: CGFloat = -1
+
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .overlay(
+                    GeometryReader { geo in
+                        LinearGradient(
+                            colors: [.clear, .white.opacity(0.45), .clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: geo.size.height * 2)
+                        .offset(y: phase * geo.size.height * 3)
+                        .blendMode(.plusLighter)
+                    }
+                    .clipped()
+                )
+                .onAppear {
+                    withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+                        phase = 1
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+private struct BreathingDot: ViewModifier {
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content
+                .scaleEffect(1.0)
+                .modifier(BreathingLoop())
+        }
+    }
+}
+
+private struct BreathingLoop: ViewModifier {
+    @State private var up = false
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(up ? 1.25 : 0.9)
+            .opacity(up ? 1.0 : 0.7)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                    up = true
+                }
+            }
     }
 }
 

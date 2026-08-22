@@ -12,6 +12,8 @@ struct StickyApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var sharedViewModel: NotchViewModel?
+
     private var notchController: NotchWindowController?
     private let viewModel = NotchViewModel()
     private var discoveryService: DiscoveryService?
@@ -26,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        Self.sharedViewModel = viewModel
         startServices()
         installInterface()
 
@@ -144,6 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if statusItem == nil {
             setupMenu()
         }
+        NSApp.servicesProvider = ServicesProvider()
+        NSUpdateDynamicServices()
     }
 
     private func setupMenu() {
@@ -165,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "Send pending now", action: #selector(sendPendingTransfers), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Clear pending queue", action: #selector(clearPendingTransfers), keyEquivalent: ""))
+        let shelfItem = NSMenuItem(title: "Show Shelf…", action: #selector(showShelf), keyEquivalent: "e")
+        shelfItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(shelfItem)
         menu.addItem(NSMenuItem(title: "Send copied text", action: #selector(sendCopiedText), keyEquivalent: "t"))
         menu.addItem(NSMenuItem(title: "Open received files", action: #selector(openReceivedFiles), keyEquivalent: "o"))
 
@@ -243,6 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard response == .OK else { return }
             self?.viewModel.sendFiles(picker.urls)
         }
+    }
+
+    @objc private func showShelf() {
+        viewModel.showShelf()
     }
 
     @objc private func sendPendingTransfers() {
@@ -411,5 +423,19 @@ final class StatusBarDropArea: NSView {
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         isDragActive = false
+    }
+}
+
+
+/// Finder "right-click → Send with Sticky" integration. macOS discovers this
+/// through the app's Services menu; the handler accepts any selected files.
+@objc final class ServicesProvider: NSObject {
+    @objc func sendFilesFromFinder(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString>) {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else { return }
+        Task { @MainActor in
+            AppDelegate.sharedViewModel?.sendFiles(urls)
+        }
     }
 }

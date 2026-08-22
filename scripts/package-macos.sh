@@ -59,8 +59,19 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key><string>Sticky</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>CFBundleIconFile</key><string>Sticky</string>
   <key>NSLocalNetworkUsageDescription</key><string>Sticky finds your paired computer on your private network so it can send files and text directly.</string>
   <key>NSHumanReadableCopyright</key><string>Local-first transfer. No telemetry.</string>
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Send with Sticky</string></dict>
+      <key>NSMessage</key><string>sendFilesFromFinder</string>
+      <key>NSRequiredContext</key><dict><key>NSApplicationIdentifier</key><string>com.apple.finder</string></dict>
+      <key>NSSendFileTypes</key><array><string>public.item</string></array>
+      <key>NSPortName</key><string>Sticky</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

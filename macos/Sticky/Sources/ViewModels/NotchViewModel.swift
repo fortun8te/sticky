@@ -743,3 +743,27 @@ extension NotchViewModel {
         noteInteraction()
     }
 }
+
+// MARK: - Shelf window support
+
+extension NotchViewModel {
+    func removeShelfItemPublic(id: UUID) {
+        shelfFiles.removeAll { $0.id == id }
+    }
+
+    func removePendingTransferPublic(id: UUID) {
+        removePendingTransfer(id: id)
+    }
+
+    func clearShelf() {
+        shelfFiles.removeAll()
+    }
+
+    func showShelf() {
+        ShelfWindowController.shared.show(viewModel: self)
+    }
+
+    func toggleShelf() {
+        ShelfWindowController.shared.toggle(viewModel: self)
+    }
+}
