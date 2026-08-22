@@ -11,6 +11,7 @@ struct NotchView: View {
         ZStack(alignment: .top) {
             if viewModel.isExpanded {
                 ExpandedPanel(viewModel: viewModel)
+                    .frame(height: expandedHeight)
                     .zIndex(1)
             } else {
                 Rectangle()
@@ -29,9 +30,7 @@ struct NotchView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: max(geometry.rect.width + 40, 220), alignment: .top)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(width: max(geometry.rect.width + 40, 220), height: viewModel.isExpanded ? nil : interactionSize.height + 26, alignment: .top)
         .ignoresSafeArea()
         .onChange(of: reduceMotion) { _, newValue in
             viewModel.reducesMotion = newValue
@@ -72,6 +71,8 @@ struct NotchView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
     }
+
+    private var expandedHeight: CGFloat { 340 }
 
     private var displayState: NotchState {
         viewModel.state
