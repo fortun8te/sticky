@@ -169,6 +169,9 @@ final class NotchWindowController {
         hosting.interactiveFrameProvider = { [weak self] bounds in
             self?.interactiveBounds(for: localNotchRect, in: bounds) ?? .zero
         }
+        hosting.isExpandedActive = { [weak self] in
+            self?.viewModel.isExpanded ?? false
+        }
         panel.contentView = hosting
         window = panel
         panel.orderFrontRegardless()
@@ -268,22 +271,29 @@ final class NotchWindowController {
 }
 
 final class NotchPanel: NSPanel {
-    // The notch is a drop surface, never a keyboard-owning app window.
+    // The notch is a drop surface and click target; it never owns the keyboard
+    // or menu bar. Buttons inside still work because NSPanel delivers clicks
+    // even when it can't become key.
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        super.sendEvent(event)
+    }
 }
 
 private final class NotchHostingView: NSHostingView<AnyView> {
     fileprivate var interactiveFrameProvider: ((NSRect) -> NSRect)?
+    fileprivate var isExpandedActive: (() -> Bool)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // When expanded, the whole panel is interactive — buttons, rows, scroll.
+        if isExpandedActive?() == true { return super.hitTest(point) ?? self }
+
         guard let interactiveFrameProvider,
               interactiveFrameProvider(bounds).contains(convert(point, from: nil)) else {
             return nil
         }
-        // Transparent SwiftUI roots can return nil even when visible controls are
-        // inside the interactive frame. The hosting view remains the safe event
-        // receiver so first-click and text focus work reliably.
         return super.hitTest(point) ?? self
     }
 
