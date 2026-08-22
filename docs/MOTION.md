@@ -18,6 +18,42 @@ transfer moment is ~1 second of light and glass around the aperture, and then
 nothing — the screen returns exactly to rest. If any element persists after the
 moment, the design has failed.
 
+## 1a. The gateway frame — the governing metaphor (user's own words)
+
+"You're throwing it into the notch, so all the glow from the entire screen goes
+**into** the notch on the Mac. It then **explodes from the bottom** into the
+rest of the screen on the Windows machine. Like between two star systems, where
+you've got a gateway and it just fires shit off."
+
+This is the organising idea and it makes the two ends **asymmetric by design**:
+
+- **Mac = INTAKE.** Light does not wash the screen — it *converges*. Soft radial
+  spokes reach inward from across the screen toward the notch, a wide blurred
+  ring contracts onto it, the bloom gathers AT the aperture and is brightest as
+  everything arrives. The file rides the collapse (ease-IN). Three beats:
+  charge (quiet — spokes reach in) → converge (peak) → swallowed (the last
+  light closes in). Intensity must BUILD; the charge beat is restrained
+  (spokes ~0.4, bloom ~0.15) or there is no story.
+- **Windows = EXHAUST.** The mouth ignites compact and hot at the sill, then
+  spokes and an expanding ring *erupt outward* from the bottom edge into the
+  screen; the file is fired out riding the wavefront, decelerating (ease-OUT);
+  the front expands and fades. Three beats: ignition → eruption → settle.
+- One directional throughput. Nothing on the Mac expands; nothing on Windows
+  contracts.
+
+Mockup: `docs/mockups/v16.jpg` (source `src/v16.swift`), including the **seam
+frame** — both machines in shot at the peak instant, Windows erupting above the
+bezel while the Mac swallows below it. That frame is the product in one image.
+
+**Taskbar rule extended:** on Windows, *every* light layer — spokes, ring,
+bloom, not just the blur wave — is masked to stop ~6 pt above the taskbar with
+a short eased falloff (`BottomMask` in the rig). First render violated this and
+it read as a broken app instantly.
+
+v14/v15 remain the reference for the wash/blur/lens *materials*; v16 supplies
+the light *choreography*. Combine: v14's blur wave + soft square lens, with
+v16's converging/erupting spoke-and-ring light replacing the static bloom.
+
 ## 2. The observed chronology (from real NameDrop frame captures)
 
 1. **Contact** — the top of the screen begins to *blur away*; a faint glow at
@@ -181,6 +217,7 @@ So the same ground is not re-explored blind:
 | v13 A/B/C — square glass bodies | Right family; rims still read too defined |
 | **v14 — v11 composition + soft square lens** | **The pick.** Build this |
 | v15 — the Windows end, mirrored | Composition confirmed; taskbar-wash bug found and fixed (§8a) |
+| v16 — the gateway: intake / exhaust | **Choreography locked** — Mac converges, Windows erupts; seam frame is the money shot (§1a) |
 
 Standing sensitivities from review: hard gradient cut-offs are the #1 recurring
 complaint — when in doubt, softer and wider than feels necessary; glint "eyes"
