@@ -35,6 +35,30 @@ moment, the design has failed.
 The parametric ripple everyone tries to copy is the garnish. **Blur + bloom +
 glass is the meal.**
 
+### 2a. Second capture set — sideways contact (both screens visible)
+
+A further set of real frames, phones touching edge-to-edge, adds these facts:
+
+- **Both screens glow simultaneously, before any content moves.** The receiving
+  phone's dark screen blooms softly from its contact edge while the sender's
+  content blurs. The event has two ends from the first frame — it is never
+  "send, then receive".
+- On the sender, the glow starts at the aperture **and** a subtle glow rises
+  from the opposite (bottom) edge; they meet, the wash deepens, "the warping
+  happens".
+- **Once interconnected, the droplet/lens appears on both sides.**
+- At peak wash the sender's content is almost entirely dissolved — far more
+  than feels safe until you see it; it recovers completely in under half a
+  second.
+- There is no hard edge in any frame at any scale. Every boundary is a wide
+  falloff.
+
+**Consequence for Sticky:** the Windows client mirrors the moment — its bottom
+edge blooms and forms its own lens *in the same instant* as the Mac's notch
+(one event, two mouths — see the v9 seam mock in the plan history). Progress
+still comes only from receiver-acknowledged bytes; the simultaneity is visual,
+not a claim about the network.
+
 ## 3. Colour law
 
 - Light is **warm monochrome**: white `#FFF6E5` into amber `#FFC178`. These are
@@ -61,8 +85,14 @@ glass is the meal.**
 
 - **REJECTED: the hanging teardrop/droplet.** Verdict: uncanny. Do not bring it
   back.
-- Live candidates, one JPG each in `docs/mockups/` (pick pending; render rig
-  source in `docs/mockups/src/`):
+- **PICKED: `v14.jpg` — v11's composition with the lens as a soft square.**
+  Blur wave + large bloom (v11 exactly), the file launch from v7 (anticipation
+  dip → ease-IN, exposure-blur streak), and the lens a
+  `RoundedRectangle(cornerRadius: 24, style: .continuous)` ~150×110 pt grown,
+  refracting a magnified backdrop, rim = wide blurred gradient strokes
+  (lw 3.5–4.5, blur 6, opacity ≤ 0.35). Source: `docs/mockups/src/v14.swift`.
+- Earlier candidates, kept as references (one JPG each in `docs/mockups/`;
+  render rig in `docs/mockups/src/`):
   - **A · ISLAND** (`v13a.jpg`) — rounded-rect glass plate *around* the notch
     (the iOS Liquid Glass widget look), veil light.
   - **B · CHIP** (`v13b.jpg`) — compact near-square lens floating just below
@@ -108,7 +138,25 @@ Notch 185.0 × 32.0 pt; origin from `auxiliaryTopLeftArea.width` (the notch is
 0.5 pt left of screen centre — `midX` math is off by a pixel); menu bar 33 pt
 (1 pt taller than the notch); hitbox while dragging 217 × 56 pt, none at idle.
 
-## 9. Your task
+## 9. Decision history — what was tried and judged
+
+So the same ground is not re-explored blind:
+
+| Version | Verdict |
+|---|---|
+| v7 — motion-blur launch, cyan light | Launch mechanics **good** (kept); cyan accent rejected — not Apple |
+| v8 — white light, elastic notch | Colour law established; elastic hover kept |
+| v9 — both screens, one seam | Concept **confirmed** by the sideways captures (§2a) |
+| v11 — blur wave + bloom + ellipse lens | Composition **picked** — "really good" |
+| v12 — hanging teardrop droplet | Shape **rejected** — "weird / uncanny". Do not revisit |
+| v13 A/B/C — square glass bodies | Right family; rims still read too defined |
+| **v14 — v11 composition + soft square lens** | **The pick.** Build this |
+
+Standing sensitivities from review: hard gradient cut-offs are the #1 recurring
+complaint — when in doubt, softer and wider than feels necessary; glint "eyes"
+and drawn rings read as uncanny; oversized organic blobs read as lava lamp.
+
+## 10. Your task
 
 1. Build the picked variation (or, if no pick is recorded yet, build **A** and
    keep the body/light code swappable) as a **live SwiftUI prototype** at true

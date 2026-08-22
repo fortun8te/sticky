@@ -1324,7 +1324,7 @@ rendered and **rejected as uncanny**; the live glass candidates are one JPG
 each in `docs/mockups/` — **A · Island** (rounded-rect plate around the notch,
 the iOS Liquid Glass widget look), **B · Chip** (compact square lens below the
 aperture), **C · Throat** (the notch itself extends and turns glass) — with the
-render rig in `docs/mockups/src/`. **Pick pending.** The complete motion
+render rig in `docs/mockups/src/`. **Pick recorded: `v14.jpg` — v11's composition with a soft continuous-corner square lens; both screens glow simultaneously.** The complete motion
 handoff for agents, including the instruction to produce an original variation
 of their own, is [docs/MOTION.md](docs/MOTION.md). Becomes the Phase 6 motion
 spec.
