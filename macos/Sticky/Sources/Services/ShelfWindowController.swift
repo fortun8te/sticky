@@ -9,11 +9,7 @@ final class ShelfWindowController {
 
     private var window: NSWindow?
     private weak var viewModel: NotchViewModel?
-    private let quickLook = QuickLookBridge()
 
-    private init() {
-        quickLook.controller = self
-    }
 
     func show(viewModel: NotchViewModel) {
         self.viewModel = viewModel
@@ -34,8 +30,15 @@ final class ShelfWindowController {
 
     func previewURLs(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        let controller = QLPreviewPanelController(urls: urls)
-        if let win = controller.window { NSApp.runModal(for: win) }
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
+                           styleMask: [.titled, .closable],
+                           backing: .buffered, defer: false)
+        win.title = "Quick Look"
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: PreviewListView(urls: urls))
+        NSApp.activate(ignoringOtherApps: true)
+        win.center()
+        win.makeKeyAndOrderFront(nil)
     }
 
     private func makeWindow(viewModel: NotchViewModel) {
@@ -54,30 +57,8 @@ final class ShelfWindowController {
     }
 }
 
-/// Minimal modal Quick Look host. Esc closes; the runModal keeps it simple and
-/// dependency-free for v1 of the visible queue.
-@MainActor
-final class QLPreviewPanelController: NSWindowController, NSWindowDelegate {
-    init(urls: [URL]) {
-        let preview = PreviewViewRepresentable(urls: urls)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
-                              styleMask: [.titled, .closable, .fullScreen],
-                              backing: .buffered, defer: false)
-        window.title = "Quick Look"
-        window.isReleasedWhenClosed = true
-        window.contentView = NSHostingView(rootView: preview)
-        super.init(window: window)
-        window.delegate = self
-    }
 
-    required init?(coder: NSCoder) { fatalError("unsupported") }
-
-    func windowWillClose(_ notification: Notification) {
-        NSApp.stopModal()
-    }
-}
-
-private struct PreviewViewRepresentable: View {
+private struct PreviewListView: View {
     let urls: [URL]
 
     var body: some View {
@@ -85,7 +66,8 @@ private struct PreviewViewRepresentable: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(url.lastPathComponent)
                     .font(.headline)
-                if let image = NSImage(contentsOf: url), ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(url.pathExtension.lowercased()) {
+                if ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(url.pathExtension.lowercased()),
+                   let image = NSImage(contentsOf: url) {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()

@@ -19,7 +19,7 @@ struct ShelfView: View {
                                 accent: Color.stickyAmber,
                                 primaryAction: (icon: "paperplane.fill", label: "Send", handler: { viewModel.sendFiles([item.url]) }),
                                 secondaryActions: [
-                                    RowAction(icon: "eye", label: "Quick Look", handler: { QuickLookBridge.shared.preview(urls: [item.url]) }),
+                                    RowAction(icon: "eye", label: "Quick Look", handler: { ShelfWindowController.shared.previewURLs([item.url]) }),
                                     RowAction(icon: "folder", label: "Reveal", handler: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }),
                                     RowAction(icon: "trash", label: "Remove", handler: { viewModel.removeShelfItemPublic(id: item.id) }, role: .destructive)
                                 ]
@@ -256,16 +256,5 @@ private struct ClipRow: View {
 extension String {
     func matchesAny(of options: [String]) -> Bool {
         options.contains(self)
-    }
-}
-
-/// Tiny indirection so rows can trigger Quick Look without dragging panels
-/// through the view hierarchy.
-@MainActor
-final class QuickLookBridge {
-    static let shared = QuickLookBridge()
-    weak var controller: ShelfWindowController?
-    func preview(urls: [URL]) {
-        controller?.previewURLs(urls)
     }
 }

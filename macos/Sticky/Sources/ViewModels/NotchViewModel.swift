@@ -195,14 +195,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
             dragAlignment = 0
         }
         if case .hover = state {
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, !self.dropTargeting, case .hover = self.state else { return }
-                self.withMotionAnimation(response: 0.35, dampingFraction: 0.85) {
-                    self.state = .idle
-                }
-            }
-            hoverTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+            forceCollapseIfHovering()
         }
     }
 
@@ -268,7 +261,10 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
                     }
                 }
 
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    self.resetToIdle()
+                    return
+                }
                 if succeeded {
                     guard self.activeTransferGeneration == generation else { return }
                     self.activeTransferGeneration = nil
@@ -359,7 +355,10 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
                     }
                 } ?? false
 
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    Task { @MainActor [weak self] in self?.resetToIdle() }
+                    return
+                }
                 if succeeded {
                     await MainActor.run { [weak self] in
                         guard let self, self.activeTransferGeneration == generation else { return }
@@ -494,6 +493,21 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         }
     }
 
+    /// Immediate, timer-free collapse used by the hover watchdog. If macOS
+    /// misses mouse-exited, the notch cannot stay open past one watchdog tick.
+    func forceCollapseIfHovering() {
+        guard case .hover = state else { return }
+        dropTargeting = false
+        dropMagnetism = 0
+        dragAlignment = 0
+        cancelHoverReset()
+        var tx = Transaction()
+        tx.disablesAnimations = reducesMotion
+        withTransaction(tx) {
+            state = .idle
+        }
+    }
+
     func receiveIncomingOffer(senderName: String, fileCount: Int, kind: TransferKind) {
         cancelTransientWork()
         withMotionAnimation(response: 0.38, dampingFraction: 0.78) {
@@ -501,7 +515,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         }
         hapticService?.fire(.lock)
         soundService?.play(.whoosh)
-
+        scheduleReset(after: 4.0)
     }
 
     func receiveRemoteClipboard(_ text: String, senderName: String) {

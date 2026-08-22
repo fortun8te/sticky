@@ -107,9 +107,10 @@ final class NotchWindowController {
         )
 
         // Crossing to a display above/below can skip SwiftUI's mouse-exited
-        // callback. The cursor location is the source of truth here.
+        // callback. The cursor location is the source of truth here, and the
+        // collapse is immediate — never dependent on a follow-up timer.
         if globalFrame.contains(NSEvent.mouseLocation) == false {
-            viewModel.setPointerHover(false)
+            viewModel.forceCollapseIfHovering()
         }
     }
 

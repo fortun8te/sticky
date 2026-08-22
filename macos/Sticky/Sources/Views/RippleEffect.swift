@@ -91,9 +91,9 @@ struct NameDropGlow: View {
             guard intensity > 0.01, !reduceMotion else { return }
 
             let origin = CGPoint(x: size.width / 2, y: size.height)
-            let maximumRadius = max(size.width, size.height) * 1.15
+            let maximumRadius = max(size.width, size.height) * 0.85
 
-            context.addFilter(.blur(radius: size.width * 0.08))
+            context.addFilter(.blur(radius: size.width * 0.05))
             context.blendMode = .plusLighter
 
             let glowRect = CGRect(
@@ -106,8 +106,8 @@ struct NameDropGlow: View {
                 Path(ellipseIn: glowRect),
                 with: .radialGradient(
                     Gradient(stops: [
-                        .init(color: Color.stickyCream.opacity(0.46 * intensity), location: 0),
-                        .init(color: Color.stickyAmber.opacity(0.18 * intensity), location: 0.32),
+                        .init(color: Color.stickyCream.opacity(0.22 * intensity), location: 0),
+                        .init(color: Color.stickyAmber.opacity(0.08 * intensity), location: 0.32),
                         .init(color: .clear, location: 1)
                     ]),
                     center: origin,

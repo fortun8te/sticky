@@ -14,6 +14,9 @@ struct NotchView: View {
                 .frame(width: interactionSize.width, height: interactionSize.height)
                 .contentShape(Rectangle())
                 .onDrop(of: [.fileURL], delegate: viewModel)
+                .onTapGesture {
+                    viewModel.toggleShelf()
+                }
                 .onHover { hovering in
                     viewModel.setPointerHover(hovering)
                 }
@@ -173,10 +176,6 @@ struct NotchView: View {
         return CGFloat(elapsed / period)
     }
 
-    private var idleHintOpacity: CGFloat {
-        viewModel.shelfFiles.isEmpty && viewModel.pendingTransfers.isEmpty ? 0.0 : 1.0
-    }
-
     private var islandDimensions: (width: CGFloat, height: CGFloat, cornerRadius: CGFloat, shadowOpacity: Double, shadowRadius: CGFloat) {
         let width = max(geometry.rect.width, 120)
         let baseHeight = max(geometry.rect.height, 22)
@@ -186,19 +185,19 @@ struct NotchView: View {
         case .idle:
             return (width, baseHeight, 11, 0, 0)
         case .hover:
-            return (width + 16, baseHeight + 22 + pull * 4, 17, 0.34 + pull * 0.06, 15)
+            return (width + 16, baseHeight + 22 + pull * 4, 17, 0.20 + pull * 0.04, 10)
         case .armed:
-            return (width + 34, baseHeight + 34, 20, 0.44, 20)
+            return (width + 34, baseHeight + 34, 20, 0.26, 13)
         case .transferring:
-            return (width + 46, baseHeight + 38, 22, 0.48, 22)
+            return (width + 46, baseHeight + 38, 22, 0.30, 15)
         case .queued:
-            return (width + 34, baseHeight + 32, 20, 0.40, 18)
+            return (width + 34, baseHeight + 32, 20, 0.24, 12)
         case .success:
-            return (width + 22, baseHeight + 26, 19, 0.36, 16)
+            return (width + 22, baseHeight + 26, 19, 0.22, 11)
         case .failure:
-            return (width + 42, baseHeight + 34, 20, 0.40, 18)
+            return (width + 42, baseHeight + 34, 20, 0.24, 12)
         case .incomingOffer:
-            return (width + 50, baseHeight + 36, 22, 0.46, 20)
+            return (width + 50, baseHeight + 36, 22, 0.28, 13)
         }
     }
 
@@ -217,26 +216,15 @@ struct NotchView: View {
     private var islandContent: some View {
         switch displayState {
         case .idle:
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(Color.stickyAmber.opacity(0.85))
-                    .frame(width: 4, height: 4)
-                    .modifier(BreathingDot(reduceMotion: reduceMotion))
-                Text("Sticky")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.55))
-                    .kerning(0.6)
-            }
-            .opacity(idleHintOpacity)
+            Color.clear
         case .hover:
             HStack(spacing: 6) {
-                Image(systemName: "tray.and.arrow.down.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.stickyAmber)
-                    .modifier(ArmedPullSymbol(reduceMotion: reduceMotion))
-                Text("Drop to send")
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                Text("Send to PC")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.86))
+                    .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
             }
         case .armed(let count, let previewData):
@@ -590,10 +578,10 @@ private struct ShimmerFill: ViewModifier {
                 .overlay(
                     GeometryReader { geo in
                         LinearGradient(
-                            colors: [.clear, .white.opacity(0.45), .clear],
+                            colors: [.clear, .white.opacity(0.20), .clear],
                             startPoint: .top, endPoint: .bottom
                         )
-                        .frame(height: geo.size.height * 2)
+                        .frame(height: geo.size.height * 1.2)
                         .offset(y: phase * geo.size.height * 3)
                         .blendMode(.plusLighter)
                     }
