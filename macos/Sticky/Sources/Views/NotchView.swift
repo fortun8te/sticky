@@ -771,12 +771,16 @@ struct ExpandedPanel: View {
             Text("Sticky")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
 
             Text(peerLabel)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
-            Spacer()
+            Spacer(minLength: 8)
 
             Button {
                 if viewModel.isSelecting { viewModel.cancelSelection() } else { viewModel.enterSelectionMode() }
