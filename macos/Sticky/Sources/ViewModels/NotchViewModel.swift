@@ -49,6 +49,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     private var dropProbeWidth: CGFloat = 220
 
     override init() {
+        clipboardSyncEnabled = UserDefaults.standard.bool(forKey: "sticky.clipboardSync")
         super.init()
         restoreShelf()
         restorePendingTransfers()
@@ -292,6 +293,14 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     }
 
     @Published private(set) var peerCount: Int = 0
+    @Published var selectedShelfIDs: Set<UUID> = []
+    @Published var isSelecting = false
+    @Published var clipboardSyncEnabled: Bool {
+        didSet { UserDefaults.standard.set(clipboardSyncEnabled, forKey: "sticky.clipboardSync") }
+    }
+    /// App layer hooks: outgoing sync text + notification that settings changed.
+    var clipboardSyncSender: ((String) -> Void)?
+    var onClipboardSyncChanged: ((Bool) -> Void)?
 
     func updatePeerAvailability(_ available: Bool) {
         peerReachable = available
@@ -493,6 +502,12 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         withMotionAnimation(response: 0.4, dampingFraction: 0.88) {
             state = .idle
         }
+    }
+
+    func toggleClipboardSync() {
+        clipboardSyncEnabled.toggle()
+        onClipboardSyncChanged?(clipboardSyncEnabled)
+        noteInteraction()
     }
 
     func toggleExpanded() {
@@ -793,6 +808,32 @@ extension NotchViewModel {
 
     func clearShelf() {
         shelfFiles.removeAll()
+        selectedShelfIDs.removeAll()
+    }
+
+    func toggleSelection(for id: UUID) {
+        if selectedShelfIDs.contains(id) {
+            selectedShelfIDs.remove(id)
+        } else {
+            selectedShelfIDs.insert(id)
+        }
+    }
+
+    func enterSelectionMode() {
+        isSelecting = true
+    }
+
+    func cancelSelection() {
+        isSelecting = false
+        selectedShelfIDs.removeAll()
+    }
+
+    func deleteSelected() {
+        shelfFiles.removeAll { selectedShelfIDs.contains($0.id) }
+        pendingTransfers = pendingTransfers.filter { !selectedShelfIDs.contains($0.items.first?.id ?? UUID()) }
+        selectedShelfIDs.removeAll()
+        isSelecting = false
+        hapticService?.fire(.tick)
     }
 
     func showShelf() {

@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var peerSubscription: AnyCancellable?
     private var servicesAreRunning = false
 
+    private var pasteboardPoller: Timer?
+    private var lastPasteboardChangeCount: Int = 0
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         Self.sharedViewModel = viewModel
@@ -53,6 +56,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         stopServices()
+    }
+
+    static func startPasteboardWatcherStatic() {
+        (NSApp.delegate as? AppDelegate)?.startPasteboardWatcher()
+    }
+
+    private func startPasteboardWatcher() {
+        guard pasteboardPoller == nil else { return }
+        lastPasteboardChangeCount = NSPasteboard.general.changeCount
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let pb = NSPasteboard.general
+                guard self.viewModel.clipboardSyncEnabled,
+                      pb.changeCount != self.lastPasteboardChangeCount else {
+                    self.lastPasteboardChangeCount = pb.changeCount
+                    return
+                }
+                self.lastPasteboardChangeCount = pb.changeCount
+                if let text = pb.string(forType: .string), !text.isEmpty {
+                    self.viewModel.clipboardSyncSender?(text)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pasteboardPoller = timer
     }
 
     private func startServices() {
@@ -105,6 +134,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transfer.onClipboardReceived = { [weak self] text, senderName in
             Task { @MainActor [weak self] in
                 self?.viewModel.receiveRemoteClipboard(text, senderName: senderName)
+                // Clipboard sync: received text also lands on the system clipboard.
+                if self?.viewModel.clipboardSyncEnabled == true {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+            }
+        }
+
+        startPasteboardWatcher()
+        viewModel.onClipboardSyncChanged = { enabled in
+            if enabled {
+                AppDelegate.startPasteboardWatcherStatic()
+            }
+        }
+        viewModel.clipboardSyncSender = { [weak self] text in
+            guard let peer = self?.discoveryService?.peers.first else { return }
+            Task { [weak self] in
+                try? await self?.transferService?.sendText(text, to: peer)
             }
         }
 

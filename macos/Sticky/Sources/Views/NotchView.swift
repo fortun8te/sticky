@@ -677,12 +677,45 @@ struct ExpandedPanel: View {
             Divider()
                 .overlay(Color.white.opacity(0.08))
 
+            if viewModel.isSelecting && !viewModel.selectedShelfIDs.isEmpty {
+                selectionBar
+            }
+
             ShelfContentView(viewModel: viewModel)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.black.opacity(0.985))
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20))
         .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 10) {
+            Text("\(viewModel.selectedShelfIDs.count) selected")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+
+            Spacer()
+
+            Button {
+                viewModel.deleteSelected()
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.red.opacity(0.75)))
+            }
+            .buttonStyle(.plain)
+
+            Button("Cancel") { viewModel.cancelSelection() }
+                .font(.system(size: 10, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.5))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 
     private var header: some View {
@@ -700,6 +733,30 @@ struct ExpandedPanel: View {
                 .foregroundStyle(.white.opacity(0.45))
 
             Spacer()
+
+            Button {
+                if viewModel.isSelecting { viewModel.cancelSelection() } else { viewModel.enterSelectionMode() }
+            } label: {
+                Image(systemName: viewModel.isSelecting ? "xmark.circle" : "checklist")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(viewModel.isSelecting ? Color.stickyAccent : Color.white.opacity(0.55))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                viewModel.toggleClipboardSync()
+            } label: {
+                Image(systemName: viewModel.clipboardSyncEnabled ? "arrow.left.arrow.right.circle.fill" : "arrow.left.arrow.right.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(viewModel.clipboardSyncEnabled ? Color.stickyAccent : Color.white.opacity(0.45))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Clipboard sync between Mac and PC")
 
             Button {
                 viewModel.collapseExpanded()
@@ -732,7 +789,7 @@ struct ShelfContentView: View {
                 if !viewModel.shelfFiles.isEmpty {
                     sectionHeader("Shelf", detail: "\(viewModel.shelfFiles.count)")
                     ForEach(viewModel.shelfFiles) { item in
-                        NotchFileRow(url: item.url,
+                        NotchFileRow(viewModel: viewModel, item: item, url: item.url,
                                      subtitle: "Ready to send",
                                      sendTitle: "Send") {
                             viewModel.sendFiles([item.url])
@@ -744,7 +801,7 @@ struct ShelfContentView: View {
                     if !viewModel.pendingTransfers.isEmpty {
                         sectionHeader("Waiting for PC", detail: "\(viewModel.pendingTransfers.count)")
                         ForEach(viewModel.pendingTransfers) { transfer in
-                            NotchFileRow(url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
+                            NotchFileRow(viewModel: viewModel, item: nil, url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
                                          subtitle: transfer.attempts == 0 ? "Queued" : "Retry \(transfer.attempts)",
                                          sendTitle: "Send all",
                                          titleOverride: "\(transfer.items.count) item\(transfer.items.count == 1 ? "" : "s")",
@@ -771,7 +828,7 @@ struct ShelfContentView: View {
                     if !viewModel.pendingTransfers.isEmpty {
                         sectionHeader("Waiting for PC", detail: "\(viewModel.pendingTransfers.count)")
                         ForEach(viewModel.pendingTransfers) { transfer in
-                            NotchFileRow(url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
+                            NotchFileRow(viewModel: viewModel, item: nil, url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
                                          subtitle: transfer.attempts == 0 ? "Queued" : "Retry \(transfer.attempts)",
                                          sendTitle: "Send all",
                                          titleOverride: titleForCount(transfer.items.count),
@@ -842,6 +899,8 @@ struct ShelfContentView: View {
 }
 
 private struct NotchFileRow: View {
+    @ObservedObject var viewModel: NotchViewModel
+    let item: StickyShelfItem?
     let url: URL
     let subtitle: String
     let sendTitle: String
@@ -885,6 +944,21 @@ private struct NotchFileRow: View {
         .scaleEffect(hovering ? 1.015 : 1.0)
         .onHover { hovering = $0 }
         .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
+        .overlay(alignment: .leading) {
+            if let item, viewModel.isSelecting || !viewModel.selectedShelfIDs.isEmpty {
+                Button {
+                    viewModel.toggleSelection(for: item.id)
+                } label: {
+                    Image(systemName: viewModel.selectedShelfIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(viewModel.selectedShelfIDs.contains(item.id) ? Color.stickyAccent : Color.white.opacity(0.35))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .offset(x: -2)
+            }
+        }
     }
 
     /// Double-bezel: outer hairline tray, inner raised core with a top highlight.
