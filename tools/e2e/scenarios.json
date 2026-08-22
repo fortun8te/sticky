@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "cases": [
+    {"id": "ENV-001", "title": "Both machines launch and identify correctly", "requires_human": true},
+    {"id": "DISC-001", "title": "Same-LAN discovery and stale expiry", "requires_human": true},
+    {"id": "PAIR-001", "title": "PIN pairing, restart trust, and unpair", "requires_human": true},
+    {"id": "PAIR-002", "title": "Wrong PIN rejection", "requires_human": true},
+    {"id": "XFER-MW-001", "title": "Mac to Windows files, text, and images", "requires_human": true},
+    {"id": "XFER-WM-001", "title": "Windows to Mac files, text, and images", "requires_human": true},
+    {"id": "FOLD-001", "title": "Nested folders preserve structure", "requires_human": true},
+    {"id": "BIG-001", "title": "500GB-scale streaming and memory stability", "requires_human": true},
+    {"id": "LIFE-001", "title": "Sleep/wake rediscovery and transfer", "requires_human": true},
+    {"id": "NET-001", "title": "IP/network change rediscovery", "requires_human": true},
+    {"id": "SEC-001", "title": "Firewall denial and recovery", "requires_human": true},
+    {"id": "CANCEL-001", "title": "Cancel mid-transfer and cleanup", "requires_human": true},
+    {"id": "NAME-001", "title": "Duplicate filenames do not overwrite", "requires_human": true},
+    {"id": "CLIP-001", "title": "Sticky clipboard promotion and history", "requires_human": true},
+    {"id": "WISPR-001", "title": "Wispr Flow UTF-8 paste", "requires_human": true},
+    {"id": "UI-001", "title": "UI state correctness across scenarios", "requires_human": true}
+  ]
+}

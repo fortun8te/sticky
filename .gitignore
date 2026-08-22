@@ -2,6 +2,12 @@ node_modules
 out
 dist
 release
+build/
+macos/.build/
+windows/**/bin/
+windows/**/obj/
+*.user
+.artifacts/
 .DS_Store
 Thumbs.db
 *.log

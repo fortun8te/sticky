@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="handoff" x1="288" y1="352" x2="736" y2="672" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF6E5"/>
+      <stop offset="1" stop-color="#FFC178"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#0B0D10"/>
+  <g fill="none" stroke="url(#handoff)" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M316 436h332"/>
+    <path d="M568 342l94 94-94 94"/>
+    <path d="M708 588H376"/>
+    <path d="M456 494l-94 94 94 94"/>
+  </g>
+</svg>
