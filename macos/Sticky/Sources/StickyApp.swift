@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 let available = !peers.isEmpty
                 self.viewModel.updatePeerAvailability(available)
+                self.viewModel.peerName = peers.first?.name
                 self.refreshPeerCount()
             }
 

@@ -298,6 +298,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     }
 
     @Published private(set) var peerCount: Int = 0
+    @Published var peerName: String?
     @Published var selectedShelfIDs: Set<UUID> = []
     @Published var isSelecting = false
     @Published var clipboardSyncEnabled: Bool {
@@ -378,8 +379,8 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
 
     func updatePeerAvailability(_ available: Bool) {
         peerReachable = available
-        peerCount = max(peerCount, available ? 1 : 0)
-        if !available { peerCount = 0 }
+        peerCount = available ? 1 : 0
+        if !available { peerName = nil }
         if available {
             processPendingQueue()
         }
@@ -584,7 +585,12 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         noteInteraction()
     }
 
+    private var lastCollapseAt = Date.distantPast
+
     func toggleExpanded() {
+        // Click-away collapse can be immediately followed by the same click
+        // landing on the collapsed island — don't reopen from that one event.
+        guard Date().timeIntervalSince(lastCollapseAt) > 0.25 else { return }
         if isExpanded {
             collapseExpanded()
         } else {
@@ -597,6 +603,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
 
     func collapseExpanded() {
         guard isExpanded else { return }
+        lastCollapseAt = Date()
         var tx = Transaction()
         tx.disablesAnimations = reducesMotion
         withTransaction(tx) {

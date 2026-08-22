@@ -774,11 +774,22 @@ struct ExpandedPanel: View {
                 .lineLimit(1)
                 .fixedSize()
 
-            Text(peerLabel)
-                .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            if viewModel.peerCount > 0 {
+                Circle()
+                    .fill(Color(red: 0.30, green: 0.85, blue: 0.45))
+                    .frame(width: 6, height: 6)
+                Text(viewModel.peerName ?? "PC")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } else {
+                Text("no PC nearby")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
 
             Spacer(minLength: 8)
 
