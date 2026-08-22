@@ -205,9 +205,13 @@ none qualifies — in which case Windows ships the light-only arrival. A missing
 blur is acceptable; a stuttering one is not.
 ### T-602 · Haptics · T-603 · Reduce Motion
 ### T-604 · Windows visual parity
+Build the mirrored moment per `docs/MOTION.md` §8a — bottom slice, light mouth
+(never a fake notch), wave rising upward, ease-OUT arrival, mouth aligned to the
+Mac's notch width with a user offset.
 **Gate** arrival beat matches the Mac's timings (±10 ms) and colours (from
-`docs/TOKENS.md`), sustained 60 fps on the target PC, and no gradient ends in
-transparent black (AGENTS.md §9).
+`docs/TOKENS.md`); sustained 60 fps on the target PC; no gradient ends in
+transparent black (AGENTS.md §9); **and the taskbar is fully legible in every
+frame of a screen recording** — the wash stops above it.
 ### T-605 · App icon (docs/ICONS.md §7)
 **Gate for the phase** the PLAN §10.8 checklist passes on a screen recording,
 at normal speed and stepped frame by frame.

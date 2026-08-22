@@ -138,6 +138,35 @@ Notch 185.0 × 32.0 pt; origin from `auxiliaryTopLeftArea.width` (the notch is
 0.5 pt left of screen centre — `midX` math is off by a pixel); menu bar 33 pt
 (1 pt taller than the notch); hitbox while dragging 217 × 56 pt, none at idle.
 
+## 8a. The Windows end — mirrored, not copied
+
+Mockup: `docs/mockups/v15.jpg` (source `src/v15.swift`). Same beats, same
+timings, same warm white → amber, same soft-square lens. What differs, and why:
+
+- **We render the BOTTOM slice of the 27"** — that edge faces the MacBook, so it
+  is the seam. Everything happens there.
+- **The PC has no notch, so its mouth is LIGHT, never a cutout.** A sill line at
+  the screen edge plus a bloom above it. Drawing a black "fake notch" on the PC
+  is banned — only the Mac has real hardware to blend into.
+- **The mouth is aligned to the Mac's notch width (185 pt) and horizontally
+  centred on it**, with a user-adjustable offset so it lines up with how the
+  monitor physically sits above the laptop.
+- **The blur wave rises upward.** On the Mac it descends from the top; here the
+  seam is below, so the direction inverts. Same eased ≥25% band.
+- **The arrival decelerates (ease-OUT).** The file left the Mac accelerating
+  away; it arrives here slowing down. One continuous vector across the gap —
+  it never reverses direction.
+- **HARD RULE: the taskbar is never washed.** On the Mac the menu bar is grazed
+  briefly and that is acceptable; on Windows the chrome sits *exactly on the
+  seam*, so the wash is masked to stop ~6 pt above it with a short eased falloff.
+  A washed-out taskbar reads as a broken app, not an effect. The first render of
+  v15 got this wrong and it was obvious immediately — do not regress it.
+- **Simultaneity:** this edge blooms in the *same frame* the Mac commits (§2a).
+  Visual only — progress still comes solely from receiver-acknowledged bytes.
+- Perf: bloom + lens + streak must hold 60 fps (T-604). The rising blur wave is
+  SPIKE-6B; if no candidate holds frame rate, ship light-only. **A missing blur
+  is acceptable, a stuttering one is not.**
+
 ## 9. Decision history — what was tried and judged
 
 So the same ground is not re-explored blind:
@@ -151,6 +180,7 @@ So the same ground is not re-explored blind:
 | v12 — hanging teardrop droplet | Shape **rejected** — "weird / uncanny". Do not revisit |
 | v13 A/B/C — square glass bodies | Right family; rims still read too defined |
 | **v14 — v11 composition + soft square lens** | **The pick.** Build this |
+| v15 — the Windows end, mirrored | Composition confirmed; taskbar-wash bug found and fixed (§8a) |
 
 Standing sensitivities from review: hard gradient cut-offs are the #1 recurring
 complaint — when in doubt, softer and wider than feels necessary; glint "eyes"
