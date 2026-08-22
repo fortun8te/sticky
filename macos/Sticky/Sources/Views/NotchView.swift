@@ -719,7 +719,7 @@ struct ExpandedPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "tray.full.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.stickyAccent)
@@ -925,10 +925,14 @@ private struct NotchFileRow: View {
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.45))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 8)
@@ -938,8 +942,8 @@ private struct NotchFileRow: View {
                 rowButton("trash", tint: Color.white.opacity(0.45), action: onRemove)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(rowShell)
         .scaleEffect(hovering ? 1.015 : 1.0)
         .onHover { hovering = $0 }
@@ -1044,8 +1048,9 @@ private struct NotchClipRow: View {
             Text(previewText)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(1)
+                .lineLimit(2)
                 .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 8)
 
@@ -1059,8 +1064,8 @@ private struct NotchClipRow: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color.white.opacity(0.045))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)

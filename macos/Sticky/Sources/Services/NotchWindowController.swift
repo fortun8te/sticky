@@ -24,7 +24,7 @@ final class NotchWindowController {
     private var expansionSubscription: AnyCancellable?
     private var clickAwayToken: Any?
     private var escapeToken: Any?
-    private static let windowPadding = CGSize(width: 80, height: 76)
+    private static let windowPadding = CGSize(width: 80, height: 130)
     private static let expandedHeight: CGFloat = 340
 
     init(viewModel: NotchViewModel) {
@@ -190,7 +190,7 @@ final class NotchWindowController {
     private func windowSize(on screen: NSScreen) -> NSSize {
         let notch = notchSize(on: screen)
         let width = max(notch.width + Self.windowPadding.width, 260)
-        let height = max(notch.height + Self.windowPadding.height, 108)
+        let height = max(notch.height + Self.windowPadding.height, 160)
         return NSSize(
             width: min(width, screen.frame.width),
             height: min(height, screen.frame.height)
@@ -290,11 +290,17 @@ private final class NotchHostingView: NSHostingView<AnyView> {
         // When expanded, the whole panel is interactive — buttons, rows, scroll.
         if isExpandedActive?() == true { return super.hitTest(point) ?? self }
 
-        guard let interactiveFrameProvider,
-              interactiveFrameProvider(bounds).contains(convert(point, from: nil)) else {
+        // Collapsed: allow the notch area PLUS the bloom strip below it,
+        // matching the SwiftUI contentShape exactly (interactiveSize + 26).
+        if let provider = interactiveFrameProvider {
+            var frame = provider(bounds)
+            frame.size.height += 26
+            if frame.contains(convert(point, from: nil)) {
+                return super.hitTest(point) ?? self
+            }
             return nil
         }
-        return super.hitTest(point) ?? self
+        return nil
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
