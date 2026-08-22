@@ -921,6 +921,9 @@ Run against a screen recording, at normal speed and stepped:
 - [ ] Progress line does not jitter as digits change width
 - [ ] Reversing the drag mid-animation tracks smoothly; no snap, no restart
 - [ ] Idle state draws literally zero pixels outside the cutout
+- [ ] No grey fringe at the edge of any glow — no gradient ends in `Color.clear`
+- [ ] No visible banding in large soft gradients on 8-bit output
+- [ ] Blur-wave edge is an eased band, never a cut line
 
 A full write-up of the visual research — squircle math, HIG type sizes, SF Symbol
 rendering modes, the concentric-corner rule, and the sourced code behind each —

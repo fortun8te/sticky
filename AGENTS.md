@@ -182,3 +182,32 @@ swift build && swift test          # mac
 dotnet build && dotnet test        # windows
 scripts/roundtrip.sh               # phase 3 gate — real two-machine transfer
 ```
+
+---
+
+## 9. Light, gradients, and motion performance
+
+The transfer moment is mostly light. Light done carelessly is what "vibecoded"
+looks like, so these are rules, not taste:
+
+- **Never end a gradient in `Color.clear`.** `.clear` is transparent *black*;
+  interpolating toward it prints a grey fringe on every warm glow. End in the
+  same hue at `.opacity(0)` — `AMBER.opacity(0)`, not `.clear`.
+- **Every fade is an eased ramp.** Minimum three stops approximating smoothstep.
+  No two-stop radial glows; the blur wave's edge band is ≥ 25% of its travel.
+- **Check for banding at 8-bit.** Large soft gradients step visibly on 8-bit
+  output. If a render shows bands, add stops — never widen the blur to hide it.
+- **Additive layers (`.plusLighter`) ≤ 4 per frame.** Stacked additive light is
+  a GPU cost and a bloom-soup risk.
+- **The N-sample exposure streak is a mockup technique.** Production draws the
+  streak in ONE pass — `Canvas`, `CAReplicatorLayer`, or a shader. Never ship
+  N stacked SwiftUI views re-laid-out per frame.
+- **No timer-driven invalidation for motion.** Implicit CA/SwiftUI animation
+  only, so ProMotion paces frames. The old build's 25 Hz polling is the cautionary
+  tale.
+- **Windows ships the same beats, at the same timings, in the same colours**
+  (from `docs/TOKENS.md`). Bloom + streak are plain GPU compositing in WPF and
+  must hold 60 fps on the target PC. The desktop blur wave on Windows is
+  SPIKE-6B (candidates in `docs/TASKS.md`); if no candidate holds frame rate,
+  Windows ships the light-only arrival — **a missing blur is acceptable, a
+  stuttering one is not.**

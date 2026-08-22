@@ -183,7 +183,21 @@ within 30 s of both devices becoming reachable.
 ## Phase 6 — motion and polish
 
 ### T-601 · Motion ⊘ (single owner — motion by committee is how it starts looking vibecoded)
-### T-602 · Haptics · T-603 · Reduce Motion · T-604 · Windows visual parity
+
+### SPIKE-6B · Windows blur-wave feasibility ⊘
+**deps** T-604 · **timeboxed 1 day, on the target PC**
+The Mac's blur wave rides `NSVisualEffectView.maskImage`. Windows candidates, in
+order: (a) `DWMWA_SYSTEMBACKDROP_TYPE` acrylic on a shaped layered window;
+(b) `SetWindowCompositionAttribute` `ACCENT_ENABLE_ACRYLICBLURBEHIND`;
+(c) `Windows.UI.Composition` `HostBackdropBrush` via interop.
+**Gate** a sweep that holds 60 fps on the target PC, or a written verdict that
+none qualifies — in which case Windows ships the light-only arrival. A missing
+blur is acceptable; a stuttering one is not.
+### T-602 · Haptics · T-603 · Reduce Motion
+### T-604 · Windows visual parity
+**Gate** arrival beat matches the Mac's timings (±10 ms) and colours (from
+`docs/TOKENS.md`), sustained 60 fps on the target PC, and no gradient ends in
+transparent black (AGENTS.md §9).
 ### T-605 · App icon (docs/ICONS.md §7)
 **Gate for the phase** the PLAN §10.8 checklist passes on a screen recording,
 at normal speed and stepped frame by frame.
