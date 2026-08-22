@@ -9,20 +9,25 @@ struct NotchView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Rectangle()
-                .fill(Color.black.opacity(0.001))
-                .frame(width: interactionSize.width, height: interactionSize.height)
-                .contentShape(Rectangle())
-                .onDrop(of: [.fileURL], delegate: viewModel)
-                .onTapGesture {
-                    viewModel.toggleShelf()
-                }
-                .onHover { hovering in
-                    viewModel.setPointerHover(hovering)
-                }
+            if viewModel.isExpanded {
+                ExpandedPanel(viewModel: viewModel)
+                    .zIndex(1)
+            } else {
+                Rectangle()
+                    .fill(Color.black.opacity(0.001))
+                    .frame(width: interactionSize.width, height: interactionSize.height)
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.fileURL], delegate: viewModel)
+                    .onTapGesture {
+                        viewModel.toggleExpanded()
+                    }
+                    .onHover { hovering in
+                        viewModel.setPointerHover(hovering)
+                    }
 
-            island
-                .allowsHitTesting(false)
+                island
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: max(geometry.rect.width + 40, 220), alignment: .top)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -650,3 +655,316 @@ private struct SuccessCheckSymbol: ViewModifier {
         }
     }
 }
+
+// MARK: - Expanded panel (shelf integrated into the notch)
+
+/// The notch, opened up: shelf, queue, clips, and quick actions live here.
+/// No separate window — everything happens inside the same panel that hugs
+/// the hardware notch.
+struct ExpandedPanel: View {
+    @ObservedObject var viewModel: NotchViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.top, 34) // clear the hardware notch band
+                .padding(.bottom, 10)
+
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+
+            ShelfContentView(viewModel: viewModel)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.black.opacity(0.985))
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20))
+        .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tray.full.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.stickyAmber)
+
+            Text("Sticky")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text(peerLabel)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(.white.opacity(0.45))
+
+            Spacer()
+
+            Button {
+                viewModel.collapseExpanded()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
+    }
+
+    private var peerLabel: String {
+        viewModel.peerCount > 0 ? "\(viewModel.peerCount) nearby" : "no PC nearby"
+    }
+}
+
+/// Reusable content list shared by the expanded notch. Extracted from
+/// ShelfView so both entry points stay in sync.
+struct ShelfContentView: View {
+    @ObservedObject var viewModel: NotchViewModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if !viewModel.shelfFiles.isEmpty {
+                    sectionHeader("Shelf", detail: "\(viewModel.shelfFiles.count)")
+                    ForEach(viewModel.shelfFiles) { item in
+                        NotchFileRow(url: item.url,
+                                     subtitle: "Ready to send",
+                                     sendTitle: "Send") {
+                            viewModel.sendFiles([item.url])
+                        } onRemove: {
+                            viewModel.removeShelfItemPublic(id: item.id)
+                        }
+                    }
+
+                    if !viewModel.pendingTransfers.isEmpty {
+                        sectionHeader("Waiting for PC", detail: "\(viewModel.pendingTransfers.count)")
+                        ForEach(viewModel.pendingTransfers) { transfer in
+                            NotchFileRow(url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
+                                         subtitle: transfer.attempts == 0 ? "Queued" : "Retry \(transfer.attempts)",
+                                         sendTitle: "Send all",
+                                         titleOverride: "\(transfer.items.count) item\(transfer.items.count == 1 ? "" : "s")",
+                                         missingOK: true) {
+                                viewModel.processPendingQueue(force: true)
+                            } onRemove: {
+                                viewModel.removePendingTransferPublic(id: transfer.id)
+                            }
+                        }
+                    }
+
+                    if !viewModel.clipboardHistory.isEmpty {
+                        sectionHeader("Clips", detail: nil)
+                        ForEach(Array(viewModel.clipboardHistory.prefix(6).enumerated()), id: \.element.id) { _, entry in
+                            NotchClipRow(entry: entry,
+                                         isCurrent: viewModel.stickySlot?.id == entry.id) {
+                                viewModel.sendClipboardEntry(entry)
+                            }
+                        }
+                    }
+                } else if viewModel.pendingTransfers.isEmpty && viewModel.clipboardHistory.isEmpty {
+                    emptyState
+                } else {
+                    if !viewModel.pendingTransfers.isEmpty {
+                        sectionHeader("Waiting for PC", detail: "\(viewModel.pendingTransfers.count)")
+                        ForEach(viewModel.pendingTransfers) { transfer in
+                            NotchFileRow(url: transfer.items.first?.url ?? URL(fileURLWithPath: "/"),
+                                         subtitle: transfer.attempts == 0 ? "Queued" : "Retry \(transfer.attempts)",
+                                         sendTitle: "Send all",
+                                         titleOverride: titleForCount(transfer.items.count),
+                                         missingOK: true) {
+                                viewModel.processPendingQueue(force: true)
+                            } onRemove: {
+                                viewModel.removePendingTransferPublic(id: transfer.id)
+                            }
+                        }
+                    }
+
+                    if !viewModel.clipboardHistory.isEmpty {
+                        sectionHeader("Clips", detail: nil)
+                        ForEach(viewModel.clipboardHistory.prefix(6)) { entry in
+                            NotchClipRow(entry: entry,
+                                         isCurrent: viewModel.stickySlot?.id == entry.id) {
+                                viewModel.sendClipboardEntry(entry)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 18)
+        }
+    }
+
+    private func titleForCount(_ n: Int) -> String {
+        n == 1 ? "1 item" : "\(n) items"
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "tray.and.arrow.down.fill")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(.white.opacity(0.35))
+            Text("Drag files onto the notch")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+            Text("They wait here until your PC is around.")
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+    }
+
+    private func sectionHeader(_ title: String, detail: String?) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.55))
+                .textCase(.uppercase)
+                .kerning(0.5)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            Spacer()
+        }
+    }
+}
+
+private struct NotchFileRow: View {
+    let url: URL
+    let subtitle: String
+    let sendTitle: String
+    var titleOverride: String?
+    var missingOK = false
+    let onSend: () -> Void
+    let onRemove: () -> Void
+
+    @State private var hovering = false
+
+    private var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            thumb
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titleOverride ?? url.lastPathComponent)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 4) {
+                rowButton("paperplane.fill", tint: Color.stickyAmber, action: onSend)
+                rowButton("trash", tint: Color.white.opacity(0.45), action: onRemove)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(hovering ? 0.09 : 0.05)))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+    }
+
+    @ViewBuilder
+    private var thumb: some View {
+        let ext = url.pathExtension.lowercased()
+        if !exists, !missingOK {
+            placeholderThumb(icon: "questionmark.folder")
+        } else if ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(ext),
+                  let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            placeholderThumb(icon: nil, fileIcon: NSWorkspace.shared.icon(forFile: url.path))
+        }
+    }
+
+    private func placeholderThumb(icon: String? = nil, fileIcon: NSImage? = nil) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.07))
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.55))
+            } else if let fileIcon {
+                Image(nsImage: fileIcon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
+            }
+        }
+    }
+
+    private func rowButton(_ symbol: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(tint.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct NotchClipRow: View {
+    let entry: StickyClipEntry
+    let isCurrent: Bool
+    let onSend: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "text.alignleft")
+                .font(.system(size: 11))
+                .foregroundStyle(isCurrent ? Color.stickyAmber : Color.white.opacity(0.4))
+
+            Text(previewText)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 8)
+
+            Button(action: onSend) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.stickyAmber)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.stickyAmber.opacity(0.12)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(hovering ? 0.09 : 0.05)))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: hovering)
+    }
+
+    private var previewText: String {
+        let flat = entry.text.replacingOccurrences(of: "\n", with: " ")
+        return flat.count > 90 ? String(flat.prefix(90)) + "…" : flat
+    }
+}
+
+/// Corner rounding on selected corners only (the top stays flush with the screen).

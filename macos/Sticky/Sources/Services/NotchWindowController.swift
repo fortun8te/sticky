@@ -22,7 +22,11 @@ final class NotchWindowController {
     private var screenChangeObserver: NSObjectProtocol?
     private var hoverWatchdog: Timer?
     private var stateSubscription: AnyCancellable?
+    private var expansionSubscription: AnyCancellable?
+    private var clickAwayToken: Any?
+    private var escapeToken: Any?
     private static let windowPadding = CGSize(width: 80, height: 76)
+    private static let expandedHeight: CGFloat = 340
 
     init(viewModel: NotchViewModel) {
         self.viewModel = viewModel
@@ -31,6 +35,7 @@ final class NotchWindowController {
     func install() {
         destroy()
         observeHoverState()
+        observeExpansion()
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -45,6 +50,9 @@ final class NotchWindowController {
 
     func destroy() {
         stopHoverWatchdog()
+        stopExpansionMonitors()
+        expansionSubscription?.cancel()
+        expansionSubscription = nil
         stateSubscription?.cancel()
         stateSubscription = nil
 
@@ -73,6 +81,72 @@ final class NotchWindowController {
             }
     }
 
+    private func observeExpansion() {
+        expansionSubscription?.cancel()
+        expansionSubscription = viewModel.$isExpanded
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] expanded in
+                guard let self else { return }
+                self.resizePanel(expanded: expanded)
+                if expanded {
+                    self.startExpansionMonitors()
+                } else {
+                    self.stopExpansionMonitors()
+                }
+            }
+    }
+
+    /// Grows the panel downward while keeping its top edge glued to the screen
+    /// top — the boring.notch-style expansion.
+    private func resizePanel(expanded: Bool) {
+        guard let window, let screen else { return }
+        var frame = window.frame
+        let targetHeight: CGFloat = expanded
+            ? Self.expandedHeight
+            : max((screen.notchSize.height + Self.windowPadding.height), 108)
+        frame.size.height = targetHeight
+        frame.origin.y = screen.frame.maxY - targetHeight
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    private func startExpansionMonitors() {
+        stopExpansionMonitors()
+
+        // Any click outside the panel collapses it — standard popover behavior.
+        clickAwayToken = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.viewModel.isExpanded, let window = self.window else { return }
+                if !window.frame.contains(NSEvent.mouseLocation) {
+                    self.viewModel.collapseExpanded()
+                }
+            }
+        }
+
+        escapeToken = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, self.viewModel.isExpanded else { return }
+                if event.keyCode == 53 { // Escape
+                    self.viewModel.collapseExpanded()
+                }
+            }
+            return event
+        }
+    }
+
+    private func stopExpansionMonitors() {
+        if let token = clickAwayToken { NSEvent.removeMonitor(token); clickAwayToken = nil }
+        if let token = escapeToken { NSEvent.removeMonitor(token); escapeToken = nil }
+    }
+
     private func startHoverWatchdog() {
         hoverWatchdog?.invalidate()
         let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
@@ -90,6 +164,7 @@ final class NotchWindowController {
     }
 
     private func validatePointerStillInside() {
+        guard !viewModel.isExpanded else { return }
         guard let window,
               case .hover = viewModel.state,
               let hostingView = window.contentView as? NotchHostingView,
@@ -99,16 +174,18 @@ final class NotchWindowController {
         }
 
         let viewFrame = provider(hostingView.bounds)
+        // View coordinates are top-left origin; window frames are bottom-left.
+        // Mixing them was silently shifting this rect ~60pt down, so the
+        // watchdog collapsed valid hovers and caused the flicker loop.
         let globalFrame = NSRect(
             x: window.frame.minX + viewFrame.minX,
-            y: window.frame.minY + viewFrame.minY,
+            y: window.frame.maxY - viewFrame.maxY,
             width: viewFrame.width,
             height: viewFrame.height
         )
 
         // Crossing to a display above/below can skip SwiftUI's mouse-exited
-        // callback. The cursor location is the source of truth here, and the
-        // collapse is immediate — never dependent on a follow-up timer.
+        // callback. The cursor location is the source of truth here.
         if globalFrame.contains(NSEvent.mouseLocation) == false {
             viewModel.forceCollapseIfHovering()
         }

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     @Published var state: NotchState = .idle
+    @Published var isExpanded = false
     @Published var dropTargeting = false
     @Published var shelfFiles: [StickyShelfItem] = [] {
         didSet { persistShelfIfNeeded() }
@@ -109,6 +110,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     }
 
     func setPointerHover(_ hovering: Bool) {
+        guard !isExpanded else { return }
         cancelHoverReset()
 
         if hovering {
@@ -293,8 +295,12 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         }
     }
 
+    @Published private(set) var peerCount: Int = 0
+
     func updatePeerAvailability(_ available: Bool) {
         peerReachable = available
+        peerCount = max(peerCount, available ? 1 : 0)
+        if !available { peerCount = 0 }
         if available {
             processPendingQueue()
         }
@@ -490,6 +496,26 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     func resetToIdle() {
         withMotionAnimation(response: 0.4, dampingFraction: 0.88) {
             state = .idle
+        }
+    }
+
+    func toggleExpanded() {
+        if isExpanded {
+            collapseExpanded()
+        } else {
+            withMotionAnimation(response: 0.4, dampingFraction: 0.86) {
+                isExpanded = true
+            }
+            hapticService?.fire(.tick)
+        }
+    }
+
+    func collapseExpanded() {
+        guard isExpanded else { return }
+        var tx = Transaction()
+        tx.disablesAnimations = reducesMotion
+        withTransaction(tx) {
+            isExpanded = false
         }
     }
 
