@@ -82,6 +82,9 @@ struct FileThumbnail: View {
     let url: URL
     var side: CGFloat = 30
     var cornerRadius: CGFloat = 7
+    /// Fit preserves the shape of the thing; fill crops it to a square. A wide
+    /// screenshot cropped square tells you nothing about which one it is.
+    var contentMode: ContentMode = .fill
     /// A queued transfer legitimately points at a file that may be gone.
     var missingIsExpected = false
 
@@ -97,7 +100,7 @@ struct FileThumbnail: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else if missing, !missingIsExpected {
                 Image(systemName: "questionmark.folder")
                     .font(.system(size: side * 0.38))

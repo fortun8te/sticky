@@ -172,7 +172,8 @@ struct NotchView: View {
                                     .frame(height: 20)
                             }
                             islandContent
-                                .padding(.horizontal, DS.Space.l)
+                                .padding(.horizontal, DS.Space.l + 2)
+                                .padding(.bottom, DS.Space.s)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -243,18 +244,18 @@ struct NotchView: View {
         case .hover:
             return IslandShape(
                 width: w + 24 + pull * 6,
-                height: h + NotchLayout.hoverIslandDepth + pull * 4,
+                height: h + NotchLayout.hoverDepth(hasContent: viewModel.hoverHasContent) + pull * 4,
                 topRadius: DS.Radius.notchTopOpen,
                 bottomRadius: DS.Radius.notchBottomOpen,
                 shadowOpacity: 0.18 + pull * 0.04,
                 shadowRadius: 9
             )
-        case .armed:         return portal(96, 34, shadow: 0.26, blur: 13)
-        case .transferring:  return portal(110, 36, shadow: 0.28, blur: 14)
-        case .queued:        return portal(96, 32, shadow: 0.24, blur: 12)
-        case .success:       return portal(58, 26, shadow: 0.22, blur: 11)
-        case .failure:       return portal(104, 32, shadow: 0.24, blur: 12)
-        case .incomingOffer: return portal(115, 36, shadow: 0.26, blur: 13)
+        case .armed:         return portal(96, 46, shadow: 0.26, blur: 13)
+        case .transferring:  return portal(110, 50, shadow: 0.28, blur: 14)
+        case .queued:        return portal(96, 46, shadow: 0.24, blur: 12)
+        case .success:       return portal(58, 36, shadow: 0.22, blur: 11)
+        case .failure:       return portal(104, 40, shadow: 0.24, blur: 12)
+        case .incomingOffer: return portal(115, 50, shadow: 0.26, blur: 13)
         }
     }
 
@@ -295,68 +296,93 @@ struct NotchView: View {
     /// The notch grows DOWN, not sideways. A pill stretched wide enough to fit
     /// a sentence stops reading as the notch; a second line keeps the silhouette
     /// close to the hardware and matches how the Dynamic Island behaves.
-    /// No "Drop to send" label: the notch is already a drop target and the
-    /// shape says so. What's left is either one button or one quiet hint.
+    /// Hover speaks the same compact pill language as every other state:
+    /// a glyph tile, two lines of micro-copy, and a small trailing affordance.
+    ///
+    /// When there is nothing to say it says nothing. "4 waiting" was a word
+    /// doing a picture's job — the drawer's own contents are the better answer,
+    /// and an empty drawer earns a shallow lip, not a sentence.
+    @ViewBuilder
     private var hoverContent: some View {
-        VStack(spacing: 0) {
+        if viewModel.dropTargeting {
+            // A drag is in flight — answer the drag, not the clipboard.
+            dropInvitation
+        } else if viewModel.pasteboardPreview != nil {
+            clipboardPill
+        } else if !viewModel.hoverPreviewURLs.isEmpty {
+            waitingPreview
+        } else {
+            Color.clear
+        }
+    }
+
+    private var dropInvitation: some View {
+        HStack(spacing: DS.Space.s) {
+            Image(systemName: "arrow.down.to.line")
+                .font(DS.Type_.symbol(13, matching: .semibold))
+                .foregroundStyle(DS.Colors.control)
+            Text("Release to send")
+                .font(DS.Type_.title(12))
+                .foregroundStyle(DS.Colors.textPrimary)
+                .fixedSize()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// What's in the drawer, as thumbnails. No count, no copy.
+    private var waitingPreview: some View {
+        HStack(spacing: DS.Space.xs + 2) {
+            ForEach(viewModel.hoverPreviewURLs, id: \.path) { url in
+                FileThumbnail(
+                    url: url,
+                    side: 26,
+                    cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 4),
+                    contentMode: .fill,
+                    missingIsExpected: true
+                )
+            }
             Spacer(minLength: 0)
-            if viewModel.pasteboardPreview != nil {
-                // Drawn to match the sensor's action rect exactly, so what
-                // looks clickable is what is clickable.
-                clipboardButton
-                    .frame(
-                        width: NotchLayout.clipboardActionRect(
-                            notchWidth: cutout.width,
-                            notchHeight: cutout.height
-                        ).width,
-                        height: NotchLayout.hoverActionHeight
-                    )
-                    .padding(.bottom, NotchLayout.hoverActionBottomInset)
-            } else {
-                Text(shelfHint)
+            Image(systemName: "chevron.down")
+                .font(DS.Type_.symbol(10, matching: .semibold))
+                .foregroundStyle(DS.Colors.textTertiary)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    /// Says what it DOES and how big it is — never what you copied. The bezel
+    /// is the most public strip of the screen; the preview belongs inside the
+    /// shelf, which you have to deliberately open.
+    private var clipboardPill: some View {
+        HStack(spacing: DS.Space.m) {
+            Image(systemName: viewModel.pasteboardGlyph)
+                .font(DS.Type_.symbol(13, matching: .medium))
+                .foregroundStyle(DS.Colors.textPrimary)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 2), style: .continuous)
+                        .fill(DS.Colors.surface)
+                )
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(viewModel.pasteboardKindLabel)
+                    .font(DS.Type_.title(11))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Text(viewModel.pasteboardSizeLabel)
                     .font(DS.Type_.caption())
                     .foregroundStyle(DS.Colors.textTertiary)
-                    .fixedSize()
-                    .padding(.bottom, 6)
+                    .lineLimit(1)
             }
-        }
-        .frame(maxWidth: .infinity)
-    }
 
-    /// Says what it DOES, never what you copied.
-    ///
-    /// It used to print the clipboard's contents on the bezel — the most
-    /// visible strip of the screen, in every screen share, to everyone behind
-    /// you. Copying is a private act; the preview belongs inside the shelf,
-    /// which you have to deliberately open.
-    private var clipboardButton: some View {
-        HStack(spacing: DS.Space.xs + 1) {
-            Image(systemName: "doc.on.clipboard")
-                .font(DS.Type_.symbol(10, matching: .semibold))
-            Text(viewModel.pasteboardKindLabel)
-                .font(DS.Type_.title(11))
-                .lineLimit(1)
-        }
-        .foregroundStyle(DS.Colors.onControl)
-        .padding(.horizontal, DS.Space.m)
-        .frame(maxWidth: .infinity)
-        .frame(height: NotchLayout.hoverActionHeight)
-        // Concentric: the island's bottom radius less this button's inset.
-        .background(
-            RoundedRectangle(
-                cornerRadius: DS.Radius.concentric(in: DS.Radius.notchBottomOpen, inset: 4),
-                style: .continuous
-            )
-            .fill(DS.Colors.control)
-        )
-    }
+            Spacer(minLength: DS.Space.s)
 
-    /// One hint at a time, most actionable first: if there is text ready to go,
-    /// say how to send it; otherwise report the queue; otherwise invite a click.
-    private var shelfHint: String {
-        if viewModel.pasteboardPreview != nil { return "⌥click sends text" }
-        let waiting = viewModel.shelfFiles.count + viewModel.pendingTransfers.count
-        return waiting > 0 ? "\(waiting) waiting" : "click to open"
+            Image(systemName: "arrow.up")
+                .font(DS.Type_.symbol(11, matching: .semibold))
+                .foregroundStyle(DS.Colors.onControl)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(DS.Colors.control))
+        }
+        .frame(maxHeight: .infinity)
     }
 
     /// Plan §4.2 Armed: the filename, middle-truncated — or "4 files" — under

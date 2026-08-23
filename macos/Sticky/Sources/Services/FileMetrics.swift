@@ -141,16 +141,15 @@ struct FileFacts: View {
     @State private var label: String?
 
     var body: some View {
-        Group {
-            if let label {
-                Text(label)
-            } else if let prefix {
-                Text(prefix)
+        // Always a real Text, never a conditional Group. A Group whose branches
+        // are all nil collapses to EmptyView, and a `.task` attached to
+        // EmptyView never runs — so the label stayed nil forever and the size
+        // silently never appeared. Reserving the line also stops the row from
+        // jumping when the measurement lands.
+        Text(label ?? prefix ?? " ")
+            .task(id: urls.map(\.path).joined(separator: "\u{1F}")) {
+                label = await Self.describe(urls: urls, prefix: prefix, showsKind: showsKind)
             }
-        }
-        .task(id: urls.map(\.path).joined(separator: "\u{1F}")) {
-            label = await Self.describe(urls: urls, prefix: prefix, showsKind: showsKind)
-        }
     }
 
     private static func describe(urls: [URL], prefix: String?, showsKind: Bool) async -> String? {

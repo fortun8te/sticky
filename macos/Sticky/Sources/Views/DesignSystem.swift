@@ -52,9 +52,13 @@ enum DS {
         static let hairline = Color.white.opacity(0.08)
         static let hairlineStrong = Color.white.opacity(0.14)
 
-        /// Plan §10.6 bans more than one accent, so "destructive" is weight and
-        /// wording, not a second hue. No red.
+        /// Plan §10.6 bans a second accent, and for ordinary controls that
+        /// holds — "destructive" is weight and wording. The one exception is
+        /// the remove badge on a shelf chip: every Mac user reads a red circle
+        /// there and nothing else, and a delete nobody finds is worse than a
+        /// second hue. System red, so it tracks the OS rather than inventing.
         static let destructive = Color.white.opacity(0.85)
+        static let destructiveBadge = Color(nsColor: .systemRed)
 
         /// A glow must never fade to `.clear` — that interpolates through grey
         /// and leaves a visible fringe (§10.8). Fade to the same hue at zero.
@@ -163,6 +167,49 @@ enum DS {
     static func snap(_ value: CGFloat, scale: CGFloat) -> CGFloat {
         guard scale > 0 else { return value.rounded() }
         return (value * scale).rounded() / scale
+    }
+}
+
+/// The desktop, blurred, behind the panel.
+///
+/// Plan §10.2 draws the line precisely: the surface that TOUCHES the bezel is
+/// flat #000 — a material there reads as a grey rectangle glued to black
+/// hardware — but the panel that genuinely floats over the desktop is allowed
+/// to be a material. So the top of the shelf stays opaque and only the lower
+/// edge, which is over wallpaper rather than bezel, becomes glass.
+struct DesktopGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+extension DS {
+    /// Opaque where it meets the hardware, genuinely translucent where it
+    /// doesn't. The first pass bottomed out at 62% black, which is a rumour of
+    /// glass rather than glass — you could not see the desktop through it.
+    ///
+    /// The top ~38% stays flat #000 because that band is against the physical
+    /// bezel (§10.2); past that it opens up fast and ends near a third, so the
+    /// wallpaper reads clearly through the lower edge.
+    static var panelVeil: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 0.34),
+                .init(color: .black.opacity(0.78), location: 0.58),
+                .init(color: .black.opacity(0.42), location: 0.80),
+                .init(color: .black.opacity(0.14), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 }
 

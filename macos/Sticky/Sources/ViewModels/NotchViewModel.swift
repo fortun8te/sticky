@@ -153,11 +153,36 @@ final class NotchViewModel: NSObject, ObservableObject {
     /// the bezel is the most public strip of the screen.
     var pasteboardKindLabel: String {
         let pasteboard = NSPasteboard.general
-        if pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) { return "Send image" }
+        if pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) { return "Image copied" }
         if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
-            return "Send files"
+            return "Files copied"
         }
-        return "Send clipboard text"
+        return "Text copied"
+    }
+
+    var pasteboardGlyph: String {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) { return "photo" }
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
+            return "doc.on.doc"
+        }
+        return "text.alignleft"
+    }
+
+    /// Weight, not contents — the same reason the label names a kind.
+    var pasteboardSizeLabel: String {
+        let pasteboard = NSPasteboard.general
+        if let image = NSImage(pasteboard: pasteboard) {
+            let size = image.size
+            return "\(Int(size.width)) × \(Int(size.height))"
+        }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            return urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) files"
+        }
+        guard let text = pasteboard.string(forType: .string) else { return "Ready to send" }
+        let characters = text.trimmingCharacters(in: .whitespacesAndNewlines).count
+        return characters == 1 ? "1 character" : "\(characters) characters"
     }
 
     /// One click, no shelf: send what's on the clipboard to the PC and keep a
@@ -215,6 +240,13 @@ final class NotchViewModel: NSObject, ObservableObject {
     /// A peek at what an ⌥-click would send, refreshed when the pointer
     /// arrives. Read on demand — nothing polls the pasteboard for this.
     @Published private(set) var pasteboardPreview: String?
+    /// Seconds left before an armed drop sends itself. Nil when nothing is
+    /// counting down.
+    @Published private(set) var sendCountdown: Int?
+    private var countdownTimer: Timer?
+    /// Plan F-1 says a drop is a send; this is the few seconds in which you can
+    /// say "actually, just hold it" without having to undo a transfer.
+    static let keepWindow: TimeInterval = 4
     /// Plan §4.2 Sending: no large percentage counter unless the transfer
     /// exceeds two seconds.
     @Published private(set) var transferIsLong = false
@@ -313,23 +345,70 @@ final class NotchViewModel: NSObject, ObservableObject {
         armedTitle = merged.count == 1 ? merged[0].lastPathComponent : "\(merged.count) files"
         armedPreviewURL = merged.first
 
-        if peerReachable {
-            // PC is there — send immediately. No armed limbo.
-            beginTransfer(merged)
-        } else {
-            armedBatch = merged
-            withMotionAnimation(.opening) {
-                state = .armed(fileCount: merged.count, previewImage: previewData)
-            }
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                let batch = self.armedBatch
-                self.armedBatch = []
-                self.beginTransfer(batch)
-            }
-            armedTimer = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+        // A drop always heads for the PC — that is what dropping means here —
+        // but never instantly. The countdown is the whole disambiguation: you
+        // don't choose a destination before acting, you get a moment to say
+        // "hold this instead" after. Do nothing and it sends.
+        armedBatch = merged
+        withMotionAnimation(.opening) {
+            state = .armed(fileCount: merged.count, previewImage: previewData)
         }
+        startSendCountdown()
+    }
+
+    /// Does the hover island have anything to show? Drives its depth, so an
+    /// empty drawer gets a shallow lip rather than a tall empty box.
+    var hoverHasContent: Bool {
+        pasteboardPreview != nil || !shelfFiles.isEmpty || !pendingTransfers.isEmpty
+    }
+
+    /// The first few things in the drawer, for the wordless hover preview.
+    var hoverPreviewURLs: [URL] {
+        let queued = pendingTransfers.flatMap { $0.items.map(\.url) }
+        return Array((shelfFiles.map(\.url) + queued).prefix(4))
+    }
+
+    var canKeepArmedBatch: Bool { !armedBatch.isEmpty }
+
+    private func startSendCountdown() {
+        cancelSendCountdown()
+        guard !armedBatch.isEmpty else { return }
+        sendCountdown = Int(Self.keepWindow)
+
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            Task { @MainActor [weak self] in
+                guard let self, let remaining = self.sendCountdown else { timer.invalidate(); return }
+                if remaining <= 1 {
+                    timer.invalidate()
+                    self.countdownTimer = nil
+                    self.sendCountdown = nil
+                    let batch = self.armedBatch
+                    self.armedBatch = []
+                    guard !batch.isEmpty else { return }
+                    self.beginTransfer(batch)
+                } else {
+                    self.sendCountdown = remaining - 1
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
+    }
+
+    private func cancelSendCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        sendCountdown = nil
+    }
+
+    /// "Keep" — hold the batch in the drawer instead of sending it now. The
+    /// files are already on the shelf, so this only has to stop the clock.
+    func keepArmedBatch() {
+        guard !armedBatch.isEmpty else { return }
+        cancelSendCountdown()
+        armedBatch = []
+        hapticService?.fire(.tick)
+        resetToIdle()
     }
 
     private func cancelHoverReset() {
@@ -746,6 +825,7 @@ final class NotchViewModel: NSObject, ObservableObject {
 
     func resetToIdle() {
         armedTitle = nil
+        cancelSendCountdown()
         armedPreviewURL = nil
         cancelLongTransferWatch()
         withMotionAnimation(.closing) {
@@ -1097,6 +1177,44 @@ extension NotchViewModel {
         }
         clipboardSender?(entry.text)
         noteInteraction()
+    }
+
+    /// Put a line of text into the drawer. Everything that lands in the drawer
+    /// heads for the PC — that is what the drawer IS — but it is always kept
+    /// locally first, so nothing is lost when the PC is away.
+    func putText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        addStickyClipboardText(trimmed)
+        guard peerReachable else {
+            showFailure(reason: "No PC nearby · kept in Sticky")
+            return
+        }
+        clipboardSender?(trimmed)
+        showSuccess(count: 1)
+    }
+
+    /// Explicit paste — the drawer never reads the system clipboard on its own.
+    func pasteIntoDrawer() {
+        let pasteboard = NSPasteboard.general
+        let present = Set(pasteboard.types ?? [])
+        guard present.isDisjoint(with: Self.concealedTypes) else {
+            showFailure(reason: "That clipboard item is marked private")
+            return
+        }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            handleDroppedFiles(urls)
+            return
+        }
+        if let image = NSImage(pasteboard: pasteboard) {
+            writeSlot(image: image)
+            noteInteraction()
+            return
+        }
+        if let text = pasteboard.string(forType: .string) {
+            putText(text)
+        }
     }
 
     func sendClip(_ item: StickyClipItem) {

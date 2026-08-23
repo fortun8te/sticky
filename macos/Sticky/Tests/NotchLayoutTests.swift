@@ -13,7 +13,7 @@ final class NotchLayoutTests: XCTestCase {
     /// Plan §4.2: the drop sensor reaches 16 pt either side of the cutout, and
     /// never above it, where there is only bezel.
     func testSensorExtentMatchesSpec() {
-        let size = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight)
+        let size = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight, hasContent: true)
         XCTAssertEqual(size.width, notchWidth + NotchLayout.hoverPadX * 2, accuracy: 0.001)
         XCTAssertGreaterThanOrEqual(size.height, notchHeight + NotchLayout.hoverPadY)
     }
@@ -22,14 +22,17 @@ final class NotchLayoutTests: XCTestCase {
     /// the pointer fell out of the live region while still visibly inside the
     /// pill, and hover collapsed under the cursor.
     func testSensorCoversTheDrawnHoverIsland() {
-        let size = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight)
-        XCTAssertGreaterThanOrEqual(size.height, notchHeight + NotchLayout.hoverIslandDepth)
+        // Both states: the sensor must never be shallower than what is drawn.
+        for hasContent in [true, false] {
+            let size = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight, hasContent: hasContent)
+            XCTAssertGreaterThanOrEqual(size.height, notchHeight + NotchLayout.hoverDepth(hasContent: hasContent))
+        }
     }
 
     /// What looks clickable must be what is clickable: the drawn button and the
     /// sensor's action rect come from this one definition.
     func testClipboardActionRectSitsInsideTheSensor() {
-        let sensor = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight)
+        let sensor = NotchLayout.hoverSize(notchWidth: notchWidth, notchHeight: notchHeight, hasContent: true)
         let rect = NotchLayout.clipboardActionRect(notchWidth: notchWidth, notchHeight: notchHeight)
         XCTAssertGreaterThanOrEqual(rect.minX, 0)
         XCTAssertLessThanOrEqual(rect.maxX, sensor.width)

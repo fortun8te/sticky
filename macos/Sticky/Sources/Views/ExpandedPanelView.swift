@@ -6,13 +6,6 @@ import AppKit
 struct ExpandedPanel: View {
     @ObservedObject var viewModel: NotchViewModel
     @Environment(\.notchGeometry) private var geometry
-    @State private var activeTab: PanelTab = .shelf
-
-    enum PanelTab: String, CaseIterable {
-        case shelf, slot
-        var title: String { self == .shelf ? "Shelf" : "Slot" }
-        var icon: String { self == .shelf ? "tray.full" : "text.cursor" }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -21,36 +14,25 @@ struct ExpandedPanel: View {
                 // Plan §3.2.6: content begins at notchHeight + 10, derived from
                 // the measured cutout — never a hardcoded number.
                 .padding(.top, geometry.rect.height + DS.Space.cameraClearance)
-                .padding(.bottom, DS.Space.m)
-
-            tabPicker
-                .padding(.horizontal, DS.Space.l)
-                .padding(.bottom, DS.Space.m)
+                .padding(.bottom, DS.Space.s)
 
             Rectangle()
                 .fill(DS.Colors.hairline)
                 .frame(height: 1)
 
-            Group {
-                switch activeTab {
-                case .shelf: ShelfContentView(viewModel: viewModel)
-                case .slot:
-                    if let clipboard = viewModel.clipboardService {
-                        SlotClipboardView(
-                            clipboard: clipboard,
-                            onSend: { viewModel.sendClip($0) },
-                            onFeedback: { viewModel.noteInteraction() }
-                        )
-                    } else {
-                        SlotView(viewModel: viewModel)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Files above, text below, both always visible. The tab bar this
+            // replaces made you choose a container before you had a thought —
+            // and nobody could say which container a pasted line belonged in.
+            DrawerView(viewModel: viewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: NotchLayout.expandedHeight, alignment: .top)
-        // Plan §10.2: the surface that touches the bezel is flat #000.
-        .background(DS.Colors.notchBody)
+        .background(
+            ZStack {
+                DesktopGlass()
+                DS.panelVeil
+            }
+        )
         .clipShape(
             UnevenRoundedRectangle(
                 bottomLeadingRadius: DS.Radius.panel,
@@ -71,7 +53,7 @@ struct ExpandedPanel: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: DS.Space.m) {
+        HStack(spacing: DS.Space.s) {
             Text("Sticky")
                 .font(DS.Type_.title(15))
                 .foregroundStyle(.white)
@@ -80,6 +62,12 @@ struct ExpandedPanel: View {
             peerChip
 
             Spacer(minLength: DS.Space.s)
+
+            if !viewModel.shelfFiles.isEmpty {
+                headerButton(icon: "paperplane.fill", active: true, help: "Send everything now") {
+                    viewModel.sendFiles(viewModel.shelfFiles.map(\.url))
+                }
+            }
 
             headerButton(icon: "xmark", active: false, help: "Close") {
                 viewModel.collapseExpanded()
@@ -117,41 +105,6 @@ struct ExpandedPanel: View {
         .help(help)
     }
 
-    // MARK: Tabs
-
-    private var tabPicker: some View {
-        HStack(spacing: 2) {
-            ForEach(PanelTab.allCases, id: \.self) { tab in
-                Button { activeTab = tab } label: {
-                    HStack(spacing: DS.Space.xs + 1) {
-                        Image(systemName: tab.icon)
-                            .font(DS.Type_.symbol(11, matching: .semibold))
-                        Text(tab.title)
-                            .font(DS.Type_.title(11.5))
-                        if tab == .shelf, waitingCount > 0 {
-                            Text("\(waitingCount)")
-                                .font(DS.Type_.title(11))
-                                .monospacedDigit()
-                                .foregroundStyle(DS.Colors.textSecondary)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(DS.Colors.surfaceHover))
-                        }
-                    }
-                    .foregroundStyle(activeTab == tab ? Color.white : DS.Colors.textTertiary)
-                    .padding(.horizontal, DS.Space.m)
-                    .padding(.vertical, DS.Space.xs + 2)
-                    .background(Capsule().fill(activeTab == tab ? DS.Colors.surfaceHover : Color.clear))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
-        .padding(3)
-        .background(Capsule().fill(DS.Colors.surface))
-    }
-
     private var waitingCount: Int {
         viewModel.shelfFiles.count + viewModel.pendingTransfers.count
     }
@@ -160,77 +113,52 @@ struct ExpandedPanel: View {
 // MARK: - Shelf
 
 /// Plan §10.9, taken from the Nook Tray reference: a dashed inset container
-/// holding one horizontal row of file chips, with a small action row beneath.
-/// Not a vertical list of full-width rows — the tray shape is what makes it
-/// read instantly as "things go here".
-struct ShelfContentView: View {
+/// holding one horizontal row of file chips. Not a vertical list of full-width
+/// rows — the tray shape is what makes it read instantly as "things go here".
+struct FileTray: View {
     @ObservedObject var viewModel: NotchViewModel
 
-    /// Chips sit in a single row. No wrapping, no grid.
-    private let visibleChipLimit = 6
-
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.m) {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
             tray
 
-            if !viewModel.shelfFiles.isEmpty {
-                actionRow
-            }
-
-            if !viewModel.pendingTransfers.isEmpty || !viewModel.clipboardHistory.isEmpty {
+            if !viewModel.pendingTransfers.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: DS.Space.xs + 2) {
-                        if !viewModel.pendingTransfers.isEmpty {
-                            sectionHeader("Waiting for PC", count: viewModel.pendingTransfers.count)
-                            ForEach(viewModel.pendingTransfers) { transfer in
-                                CompactRow(
-                                    icon: "clock",
-                                    title: transfer.items.count == 1
-                                        ? transfer.items[0].url.lastPathComponent
-                                        : "\(transfer.items.count) items",
-                                    subtitle: transfer.attempts == 0 ? "Queued" : "Retried \(transfer.attempts)×",
-                                    sizeURLs: transfer.items.map(\.url),
-                                    actionIcon: "arrow.clockwise",
-                                    onAction: { viewModel.processPendingQueue(force: true) },
-                                    onRemove: { viewModel.removePendingTransferPublic(id: transfer.id) }
-                                )
-                            }
-                        }
-
-                        if !viewModel.clipboardHistory.isEmpty {
-                            sectionHeader("Clips", count: viewModel.clipboardHistory.count)
-                            ForEach(viewModel.clipboardHistory.prefix(5)) { entry in
-                                CompactRow(
-                                    icon: "text.alignleft",
-                                    title: clipPreview(entry.text),
-                                    subtitle: nil,
-                                    actionIcon: "paperplane.fill",
-                                    onAction: { viewModel.sendClipboardEntry(entry) },
-                                    onRemove: { viewModel.deleteClipboardEntry(entry) }
-                                )
-                            }
+                        ForEach(viewModel.pendingTransfers) { transfer in
+                            CompactRow(
+                                icon: "clock",
+                                title: transfer.items.count == 1
+                                    ? transfer.items[0].url.lastPathComponent
+                                    : "\(transfer.items.count) items",
+                                subtitle: transfer.attempts == 0 ? "Waiting for PC" : "Retried \(transfer.attempts)×",
+                                sizeURLs: transfer.items.map(\.url),
+                                actionIcon: "arrow.clockwise",
+                                onAction: { viewModel.processPendingQueue(force: true) },
+                                onRemove: { viewModel.removePendingTransferPublic(id: transfer.id) }
+                            )
                         }
                     }
-                    .padding(.horizontal, DS.Space.l)
-                    .padding(.bottom, DS.Space.m)
                 }
+                // A ScrollView takes every point it is offered, so with one row
+                // it opened a hole between the tray and the compose field.
+                // Height follows the rows, capped at three.
+                .frame(height: min(CGFloat(viewModel.pendingTransfers.count) * 48, 144))
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.top, DS.Space.m)
     }
 
     /// The dashed inset container: the affordance that says "put things here"
-    /// without a word of copy.
+    /// without a word of copy. Dash weight taken from NotchDrop's tray — a 1pt
+    /// hairline reads as a border, a 4pt/10pt dash reads as a *place*.
     private var tray: some View {
         VStack(spacing: 0) {
             if viewModel.shelfFiles.isEmpty {
                 emptyTray
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: DS.Space.m) {
-                        ForEach(viewModel.shelfFiles.prefix(visibleChipLimit)) { item in
+                    HStack(spacing: DS.Space.s) {
+                        ForEach(viewModel.shelfFiles) { item in
                             FileChip(
                                 url: item.url,
                                 selected: viewModel.selectedShelfIDs.contains(item.id),
@@ -246,15 +174,12 @@ struct ShelfContentView: View {
                                 onRemove: { viewModel.removeShelfItemPublic(id: item.id) }
                             )
                         }
-                        if overflowCount > 0 {
-                            overflowChip
-                        }
                     }
                     .padding(DS.Space.m)
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 120)
+        .frame(maxWidth: .infinity, minHeight: 96)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                 .fill(DS.Colors.surface.opacity(0.5))
@@ -262,27 +187,11 @@ struct ShelfContentView: View {
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                 .strokeBorder(
-                    DS.Colors.hairlineStrong,
-                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                    DS.Colors.hairline,
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
                 )
         )
         .padding(.horizontal, DS.Space.l)
-    }
-
-    private var overflowCount: Int {
-        max(viewModel.shelfFiles.count - visibleChipLimit, 0)
-    }
-
-    private var overflowChip: some View {
-        Text("+\(overflowCount)")
-            .font(DS.Type_.title(13))
-            .monospacedDigit()
-            .foregroundStyle(DS.Colors.textSecondary)
-            .frame(width: 52, height: 92)
-            .background(
-                RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
-                    .fill(DS.Colors.surface)
-            )
     }
 
     private var emptyTray: some View {
@@ -301,73 +210,6 @@ struct ShelfContentView: View {
         .padding(.vertical, DS.Space.xl)
     }
 
-    /// A small floating action row: round buttons, evenly spaced, one job each.
-    private var actionRow: some View {
-        HStack(spacing: DS.Space.s) {
-            if viewModel.isSelecting && !viewModel.selectedShelfIDs.isEmpty {
-                trayAction("Delete \(viewModel.selectedShelfIDs.count)", icon: "trash", prominent: true) {
-                    viewModel.deleteSelected()
-                }
-                trayAction("Cancel", icon: "xmark", prominent: false) {
-                    viewModel.cancelSelection()
-                }
-            } else {
-                trayAction(
-                    viewModel.shelfFiles.count == 1 ? "Send" : "Send all",
-                    icon: "paperplane.fill",
-                    prominent: true
-                ) {
-                    viewModel.sendFiles(viewModel.shelfFiles.map(\.url))
-                }
-                trayAction("Select", icon: "checklist", prominent: false) {
-                    viewModel.enterSelectionMode()
-                }
-                trayAction("Clear", icon: "xmark", prominent: false) {
-                    viewModel.clearShelf()
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, DS.Space.l)
-    }
-
-    private func trayAction(_ title: String, icon: String, prominent: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: DS.Space.xs + 1) {
-                Image(systemName: icon)
-                    .font(DS.Type_.symbol(11, matching: .semibold))
-                Text(title)
-                    .font(DS.Type_.title(11))
-            }
-            .foregroundStyle(prominent ? Color.black : DS.Colors.textSecondary)
-            .padding(.horizontal, DS.Space.m)
-            .padding(.vertical, DS.Space.xs + 2)
-            .background(Capsule().fill(prominent ? DS.Colors.control : DS.Colors.surface))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(spacing: DS.Space.xs + 2) {
-            Text(title.uppercased())
-                .font(DS.Type_.title(11))
-                .kerning(0.5)
-                .foregroundStyle(DS.Colors.textTertiary)
-            Text("\(count)")
-                .font(DS.Type_.body(11))
-                .monospacedDigit()
-                .foregroundStyle(DS.Colors.textFaint)
-            Spacer()
-        }
-        .padding(.top, DS.Space.xs)
-    }
-
-    private func clipPreview(_ text: String) -> String {
-        let flat = text.replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return flat.count > 70 ? String(flat.prefix(70)) + "…" : flat
-    }
 }
 
 // MARK: - Chip
@@ -389,30 +231,31 @@ private struct FileChip: View {
     private var isHot: Bool { hovering || dragHovering }
 
     var body: some View {
-        VStack(spacing: DS.Space.xs + 2) {
+        VStack(spacing: DS.Space.xs + 1) {
+            // Aspect-FIT, not fill: a wide screenshot centre-cropped into a
+            // square tells you nothing about which screenshot it is.
             FileThumbnail(
                 url: url,
-                side: 40,
-                cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 3)
+                side: 46,
+                cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 3),
+                contentMode: .fit
             )
-            .frame(maxHeight: .infinity)
 
-            VStack(spacing: 1) {
-                Text(url.lastPathComponent)
-                    .font(DS.Type_.caption())
-                    .foregroundStyle(selected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                FileFacts(urls: [url])
-                    .font(DS.Type_.caption())
-                    .foregroundStyle(DS.Colors.textFaint)
-                    .lineLimit(1)
-            }
-            .frame(width: 64)
+            Text(url.lastPathComponent)
+                .font(DS.Type_.caption())
+                .foregroundStyle(selected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 56)
+
+            FileFacts(urls: [url], showsKind: false)
+                .font(DS.Type_.caption())
+                .foregroundStyle(DS.Colors.textFaint)
+                .lineLimit(1)
         }
         .padding(.vertical, DS.Space.s)
         .padding(.horizontal, DS.Space.xs + 1)
-        .frame(width: 78, height: 92)
+        .frame(width: 66)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                 .fill(isHot ? DS.Colors.surfaceHover : DS.Colors.surface)
@@ -420,37 +263,38 @@ private struct FileChip: View {
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.chip, style: .continuous)
                 .strokeBorder(
-                    selected ? DS.Colors.control : DS.Colors.control.opacity(isHot ? 0.55 : 0.28),
+                    selected ? DS.Colors.control : DS.Colors.hairline,
                     lineWidth: selected ? 1.2 : 0.75
                 )
         )
         .overlay(alignment: .topTrailing) {
             if selecting {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(DS.Type_.symbol(13, matching: .semibold))
+                    .font(DS.Type_.symbol(14, matching: .semibold))
                     .foregroundStyle(selected ? DS.Colors.control : DS.Colors.textTertiary)
-                    .padding(3)
+                    .background(Circle().fill(DS.Colors.notchBody))
+                    .offset(x: 5, y: -5)
             } else if isHot {
+                // Always on hover, never behind a held modifier. NotchDrop
+                // hides this behind Option and nobody finds it.
                 Button(action: onRemove) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(DS.Type_.symbol(13, matching: .semibold))
-                        .foregroundStyle(DS.Colors.textSecondary)
+                        .font(DS.Type_.symbol(16, matching: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color.white, DS.Colors.destructiveBadge)
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .padding(3)
-                .help("Remove")
+                .offset(x: 6, y: -6)
+                .help("Remove from shelf")
             }
         }
-        // Plan F-4: grab the file and pull it into Finder, Mail, anywhere.
-        // The handle sits over the whole chip, so it also carries the tap and
-        // the right-click menu — SwiftUI's own gestures never see them.
+        // Plan F-4: grab the file and pull it into Finder, Mail, anywhere. The
+        // handle covers the chip, so it carries the tap and the menu too.
         .filePromiseDraggable(
             url,
             onHoverChange: { dragHovering = $0 },
             onClick: onTap,
-            // Right-click rather than more buttons: the chip stays a chip, and
-            // the rarer actions live where macOS users already look.
             menuItems: [
                 (title: "Quick Look", destructive: false,
                  action: { ShelfWindowController.shared.previewURLs([url]) }),

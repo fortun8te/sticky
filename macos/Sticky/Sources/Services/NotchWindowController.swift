@@ -24,11 +24,23 @@ enum NotchLayout {
     static let hoverPadX: CGFloat = 16
     static let hoverPadY: CGFloat = 24
 
-    /// How far the hover island actually draws below the cutout. The spec's
-    /// 24 pt approach box predates the island carrying two lines; the sensor
-    /// must cover whatever is DRAWN or the pointer falls out of the live region
-    /// while still visibly inside the pill.
-    static let hoverIslandDepth: CGFloat = 40
+    /// How far the hover island draws below the cutout — and it depends on
+    /// what it is actually showing. A fixed depth left a tall empty box under
+    /// a single word. The sensor reads the same function, so the live region
+    /// always matches what is drawn.
+    static let hoverIslandDepth: CGFloat = 46
+    static let hoverEmptyDepth: CGFloat = 22
+
+    static func hoverDepth(hasContent: Bool) -> CGFloat {
+        hasContent ? hoverIslandDepth : hoverEmptyDepth
+    }
+
+    static func hoverSize(notchWidth: CGFloat, notchHeight: CGFloat, hasContent: Bool) -> CGSize {
+        CGSize(
+            width: notchWidth + hoverPadX * 2,
+            height: notchHeight + max(hoverPadY, hoverDepth(hasContent: hasContent) + 6)
+        )
+    }
     /// Height of the tappable action strip at the bottom of the hover island.
     static let hoverActionHeight: CGFloat = 24
     /// Gap between that strip and the island's lower edge. Shared by the view
@@ -42,8 +54,8 @@ enum NotchLayout {
     static let maxPortalWidth: CGFloat = 320
     static let maxPortalDepth: CGFloat = 70
 
-    static let expandedWidth: CGFloat = 460
-    static let expandedHeight: CGFloat = 380
+    static let expandedWidth: CGFloat = 540
+    static let expandedHeight: CGFloat = 348
 
     /// Plan §6: one window, sized once to the largest envelope it will ever
     /// need, never resized. Resizing an NSWindow mid-animation is what made the
@@ -56,13 +68,40 @@ enum NotchLayout {
         )
     }
 
-    /// The region the pointer must stay inside to keep the island open.
+    /// The region the pointer must stay inside to keep the island open, at its
+    /// largest. One definition — a second copy of this maths is how the drawn
+    /// island and the live region drift apart.
     static func hoverSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
-        CGSize(
-            width: notchWidth + hoverPadX * 2,
-            height: notchHeight + max(hoverPadY, hoverIslandDepth + 6)
+        hoverSize(notchWidth: notchWidth, notchHeight: notchHeight, hasContent: true)
+    }
+
+    /// Width of the "Keep" capsule offered while a drop is counting down.
+    static let keepActionWidth: CGFloat = 62
+
+    /// The trailing control inside an open portal — the "Keep" escape hatch.
+    /// Same single-definition discipline as the clipboard strip: the view that
+    /// draws it and the sensor that collects its clicks both read this.
+    static func keepActionRect(notchWidth: CGFloat, notchHeight: CGFloat, portalWidth: CGFloat, portalDepth: CGFloat) -> CGRect {
+        let sensor = activeSensorSize(notchWidth: notchWidth, notchHeight: notchHeight)
+        let portalTrailing = (sensor.width + min(portalWidth, sensor.width)) / 2
+        let height = hoverActionHeight - 2
+        let contentTop = notchHeight + Space.cameraClearanceFallback
+        let contentHeight = max(portalDepth - Space.cameraClearanceFallback, height)
+        return CGRect(
+            x: portalTrailing - hoverActionBottomInset - 8 - keepActionWidth,
+            y: contentTop + (contentHeight - height) / 2,
+            width: keepActionWidth,
+            height: height
         )
     }
+
+    /// While a portal is open the sensor must cover the largest portal any
+    /// state can draw — not the smaller approach box.
+    static func activeSensorSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
+        CGSize(width: maxPortalWidth, height: notchHeight + maxPortalDepth)
+    }
+
+    enum Space { static let cameraClearanceFallback: CGFloat = 10 }
 
     /// The strip of the hover island that sends the clipboard instead of
     /// opening the shelf. Returned in the sensor's own (top-left) coordinates
@@ -188,6 +227,11 @@ final class NotchWindowController {
 
     private func resizeSensor(expanded: Bool? = nil) {
         guard let sensor, let screen else { return }
+        // Never resize the window a drag is currently tracking against. Moving
+        // it mid-flight cancels the dragging session outright: the file just
+        // stops being droppable and nothing lands. The island still grows
+        // visually — only the sensor holds still until the drag ends.
+        guard !viewModel.dropTargeting else { return }
         let isExpanded = expanded ?? viewModel.isExpanded
         let cutout = deviceNotchRect(on: screen)
 
@@ -207,11 +251,15 @@ final class NotchWindowController {
             case .idle:
                 size = cutout.size
             case .hover:
-                size = NotchLayout.hoverSize(notchWidth: cutout.width, notchHeight: cutout.height)
+                size = NotchLayout.hoverSize(
+                    notchWidth: cutout.width,
+                    notchHeight: cutout.height,
+                    hasContent: viewModel.hoverHasContent
+                )
             default:
-                size = CGSize(
-                    width: min(NotchLayout.maxPortalWidth, cutout.width + NotchLayout.maxIslandOverhangX),
-                    height: cutout.height + NotchLayout.maxPortalDepth
+                size = NotchLayout.activeSensorSize(
+                    notchWidth: cutout.width,
+                    notchHeight: cutout.height
                 )
             }
         }
@@ -389,16 +437,33 @@ final class NotchWindowController {
         // lower band of the hover island send the clipboard, clicks above it
         // open the shelf.
         view.actionRegion = { [weak viewModel, weak self] in
-            guard let viewModel, let self, let screen = self.screen,
-                  viewModel.pasteboardPreview != nil,
-                  viewModel.state == .hover, !viewModel.isExpanded else { return nil }
+            guard let viewModel, let self, let screen = self.screen, !viewModel.isExpanded else { return nil }
             let cutout = self.deviceNotchRect(on: screen)
-            return NotchLayout.clipboardActionRect(
-                notchWidth: cutout.width,
-                notchHeight: cutout.height
-            )
+            switch viewModel.state {
+            case .hover where viewModel.pasteboardPreview != nil:
+                return NotchLayout.clipboardActionRect(
+                    notchWidth: cutout.width,
+                    notchHeight: cutout.height
+                )
+            case .armed where viewModel.canKeepArmedBatch:
+                return NotchLayout.keepActionRect(
+                    notchWidth: cutout.width,
+                    notchHeight: cutout.height,
+                    portalWidth: min(cutout.width + 96, NotchLayout.maxPortalWidth),
+                    portalDepth: 46
+                )
+            default:
+                return nil
+            }
         }
-        view.onActionTap = { [weak viewModel] in viewModel?.sendClipboardNow() }
+        view.onActionTap = { [weak viewModel] in
+            guard let viewModel else { return }
+            if case .armed = viewModel.state {
+                viewModel.keepArmedBatch()
+            } else {
+                viewModel.sendClipboardNow()
+            }
+        }
         view.menuProvider = { [weak viewModel] in
             guard let viewModel else { return nil }
             viewModel.refreshPasteboardPreview()
