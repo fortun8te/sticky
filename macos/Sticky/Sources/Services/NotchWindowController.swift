@@ -5,8 +5,8 @@ import SwiftUI
 
 enum NotchLayout {
     static let compactExtension: CGFloat = 34
-    static let interactivePadX: CGFloat = 40
-    static let interactivePadY: CGFloat = 34
+    static let interactivePadX: CGFloat = 16   // plan §4: 16pt either side
+    static let interactivePadY: CGFloat = 24   // plan §4: 24pt below the cutout
 
     static func interactiveSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
         CGSize(
@@ -160,7 +160,7 @@ final class NotchWindowController {
         panel.becomesKeyOnlyIfNeeded = false
         panel.ignoresMouseEvents = false
         panel.acceptsMouseMovedEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.setFrame(notchFrame(on: target), display: false)
 
         let localNotchRect = localDeviceNotchRect(on: target, in: panel.frame)

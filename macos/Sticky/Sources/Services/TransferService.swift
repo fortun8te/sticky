@@ -931,8 +931,31 @@ final class TransferService {
         timeoutTimer = timer
     }
 
+
+    /// §8: sanitize incoming filenames — reserved Windows names, illegal
+    /// characters, trailing dots/spaces, Unicode NFC. Applied before any
+    /// collision handling.
+    static func sanitizedFileName(_ raw: String) -> String {
+        var name = raw.precomposedStringWithCanonicalMapping
+        let illegal = CharacterSet(charactersIn: "/\\:\u{0}*?\"<>|")
+        name.unicodeScalars.removeAll { illegal.contains($0) }
+        name = name.trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        let reserved = ["CON","PRN","AUX","NUL",
+                        "COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9",
+                        "LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"]
+        if reserved.contains(stem.uppercased()) {
+            name = "_\(stem).\(ext)"
+        }
+        return name.isEmpty ? "file" : name
+    }
+
     private func collisionSafeDestination(for relativePath: String) -> URL {
-        let components = relativePath.split(separator: "/").map(String.init)
+        var components = relativePath.split(separator: "/").map(String.init)
+        if let last = components.last {
+            components[components.count - 1] = Self.sanitizedFileName(last)
+        }
         var current = Self.destinationRoot
         for component in components.dropLast() {
             current = uniqueChild(current, name: component, extensionName: nil, isDirectory: true)

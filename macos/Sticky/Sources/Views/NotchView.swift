@@ -318,6 +318,7 @@ struct NotchView: View {
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .minimumScaleFactor(0.8)
 
                 Spacer(minLength: 6)
 
@@ -407,6 +408,7 @@ struct NotchView: View {
                 .foregroundStyle(.white.opacity(0.86))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                    .minimumScaleFactor(0.8)
         }
     }
 
@@ -423,6 +425,7 @@ struct NotchView: View {
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .minimumScaleFactor(0.8)
                 Text(kind == .files ? "Receiving \(count) item\(count == 1 ? "" : "s")" : "Receiving message")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.62))
@@ -700,7 +703,7 @@ struct ExpandedPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.black.opacity(0.985))
+        .background(Color.black)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 20, bottomTrailingRadius: 20))
         .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
     }
@@ -986,6 +989,7 @@ private struct NotchFileRow: View {
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .minimumScaleFactor(0.8)
                     .minimumScaleFactor(0.85)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(subtitle)
@@ -1111,6 +1115,7 @@ private struct NotchClipRow: View {
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(2)
                 .truncationMode(.tail)
+                    .minimumScaleFactor(0.8)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 8)

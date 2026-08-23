@@ -23,18 +23,21 @@ struct NameDropWarpShape: Shape {
 
         let topRadius = CGFloat(6)
         let bottomRadius = CGFloat(18)
-        // Radial origin at bottom-center — the ripple travels outward in 2D,
-        // exactly like NameDrop's water-ring, not a 1D edge bulge.
-        let center = CGPoint(x: rect.midX, y: rect.maxY)
+        // Radial origin slightly off-centre (NameDrop's ring is organic, not
+        // symmetric) + a trailing second harmonic so both edges don't move
+        // in perfect sync.
+        let center = CGPoint(x: rect.midX - rect.width * 0.06, y: rect.maxY)
         let maxReach = hypot(rect.width / 2, rect.height)
         let waveRadius = maxReach * (0.10 + phase * 0.85)
         let spread = rect.width * 0.11   // crisp ring, not a broad bump
-        let amplitude = rect.height * 0.30 * intensity
+        let amplitude = rect.height * 0.42 * intensity
 
         func displacement(at point: CGPoint) -> CGFloat {
             let d = hypot(point.x - center.x, point.y - center.y)
-            let ring = exp(-pow((d - waveRadius) / spread, 2))
-            return amplitude * ring
+            let primary = exp(-pow((d - waveRadius) / spread, 2))
+            // Trailing harmonic at 0.6× radius, 40% strength — breaks symmetry.
+            let trail = exp(-pow((d - waveRadius * 0.6) / (spread * 1.4), 2))
+            return amplitude * (primary + 0.4 * trail * phase)
         }
 
         var path = Path()
@@ -93,7 +96,7 @@ struct NameDropGlow: View {
         Canvas { context, size in
             guard intensity > 0.01, !reduceMotion else { return }
 
-            let origin = CGPoint(x: size.width / 2, y: size.height)
+            let origin = CGPoint(x: size.width / 2 - size.width * 0.06, y: size.height)
             let maxReach = hypot(size.width / 2, size.height)
 
             // Ambient bloom near the origin
@@ -121,7 +124,7 @@ struct NameDropGlow: View {
 
             // The traveling NameDrop ring — bright edge riding the wavefront
             let ringRadius = maxReach * (0.10 + phase * 0.85)
-            let band = size.width * 0.09
+            let band = size.width * 0.12
             context.fill(
                 Path(ellipseIn: CGRect(
                     x: origin.x - ringRadius - band, y: origin.y - ringRadius - band,
@@ -130,7 +133,7 @@ struct NameDropGlow: View {
                 with: .radialGradient(
                     Gradient(stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: Color.stickyAccent.opacity(0.22 * intensity), location: 1),
+                        .init(color: Color.stickyAccent.opacity(0.34 * intensity), location: 1),
                         .init(color: .clear, location: 1)
                     ]),
                     center: origin,
