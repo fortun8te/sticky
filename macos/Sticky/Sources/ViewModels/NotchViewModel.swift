@@ -219,15 +219,19 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         let previewData = validURLs.first.flatMap { url in
             NSImage(contentsOf: url)?.tiffRepresentation
         }
-        withMotionAnimation(response: 0.42, dampingFraction: 0.82) {
-            state = .armed(fileCount: validURLs.count, previewImage: previewData)
+        if peerReachable {
+            // PC is there — send immediately. No armed limbo.
+            beginTransfer(validURLs)
+        } else {
+            withMotionAnimation(response: 0.42, dampingFraction: 0.82) {
+                state = .armed(fileCount: validURLs.count, previewImage: previewData)
+            }
+            let work = DispatchWorkItem { [weak self] in
+                self?.beginTransfer(validURLs)
+            }
+            armedTimer = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
         }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.beginTransfer(validURLs)
-        }
-        armedTimer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
 
     private func cancelHoverReset() {
@@ -473,6 +477,11 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
 
     private func queueForLater(_ urls: [URL], reason: String) {
         enqueuePendingTransfer(urls)
+        // The file now lives in "Waiting for PC" — don't keep a ghost copy in
+        // the shelf making it look like nothing happened.
+        let paths = Set(urls.map { $0.path })
+        shelfFiles.removeAll { paths.contains($0.url.path) }
+        selectedShelfIDs.removeAll()
         showQueued(count: urls.count, reason: reason)
     }
 

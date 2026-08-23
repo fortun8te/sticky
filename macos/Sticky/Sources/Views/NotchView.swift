@@ -167,27 +167,29 @@ struct NotchView: View {
         case .idle:
             return idleBase
         case .hover:
-            return 0
+            return 0.26          // visible ripple answers the cursor
         case .armed:
-            return 0.34
+            return 0.40
         case .transferring:
-            return 0.54
+            return 0.85          // full flare while sending
         case .queued:
             return 0.24
         case .success:
-            return 0.28
+            return 0.32
         case .failure:
             return 0
         case .incomingOffer:
-            return 0.44
+            return 0.50
         }
     }
 
     private func warpPhase(for date: Date) -> CGFloat {
         guard !reduceMotion else { return 0.35 }
-        let period = 1.35
+        let active = displayState != .idle
+        let period: Double = active ? 1.5 : 3.8   // slow breath at rest, quick pulse on action
         let elapsed = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period)
-        return CGFloat(elapsed / period)
+        // Cosine loop: smooth 0→1→0, never snaps back to zero
+        return CGFloat(0.5 - 0.5 * cos(2 * .pi * elapsed / period))
     }
 
     private var islandDimensions: (width: CGFloat, height: CGFloat, cornerRadius: CGFloat, shadowOpacity: Double, shadowRadius: CGFloat) {
@@ -1143,110 +1145,96 @@ private struct NotchClipRow: View {
 /// Corner rounding on selected corners only (the top stays flush with the screen).
 
 
-/// The Slot: a live pocket between machines. Type or paste text, paste an
-/// image — it mirrors to the paired PC when clipboard sync is on.
+/// The Slot: a live pocket between machines. One editor, one toolbar.
 struct SlotView: View {
     @ObservedObject var viewModel: NotchViewModel
     @FocusState private var editorFocused: Bool
 
+    private var hasContent: Bool { !viewModel.slotText.isEmpty || viewModel.slotImage != nil }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                if let image = viewModel.slotImage {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 140)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
-                            )
-                        HStack {
-                            Button {
-                                viewModel.copySlotToPasteboard()
-                            } label: {
-                                Label("Copy", systemImage: "doc.on.doc")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Color.stickyAccent)
+        VStack(alignment: .leading, spacing: 10) {
+            if let image = viewModel.slotImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 240, maxHeight: 110)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+                    )
+            }
 
-                            Button {
-                                viewModel.slotImage = nil
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.red.opacity(0.8))
-                        }
-                    }
-                    .padding(12)
-                    .background(slotShell)
+            ZStack(alignment: .topLeading) {
+                if !hasContent {
+                    Text("Type or paste — it syncs to your PC.")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.28))
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 14)
+                        .allowsHitTesting(false)
                 }
-
                 TextEditor(text: Binding(
                     get: { viewModel.slotText },
                     set: { viewModel.writeSlot(text: $0) }
                 ))
                 .font(.system(size: 12, design: .rounded))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.white.opacity(0.92))
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 90, maxHeight: 180)
-                .padding(8)
-                .background(slotShell)
+                .frame(minHeight: 72, maxHeight: hasContent ? 170 : 72)
+                .padding(5)
                 .focused($editorFocused)
-                .onPasteCommand(of: [.plainText, .png, .tiff, .fileURL]) { providers in
+            }
+            .background(slotShell)
+
+            HStack(spacing: 7) {
+                slotPill("Paste", icon: "doc.on.clipboard", primary: true) {
                     viewModel.pasteIntoSlot()
                 }
-
-                HStack(spacing: 12) {
-                    Button {
-                        viewModel.pasteIntoSlot()
-                    } label: {
-                        Label("Paste from clipboard", systemImage: "doc.on.clipboard")
-                            .font(.system(size: 10.5, weight: .semibold))
+                if hasContent {
+                    slotPill("Copy", icon: "doc.on.doc", primary: false) {
+                        viewModel.copySlotToPasteboard()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.stickyAccent)
-
-                    if !viewModel.slotText.isEmpty {
-                        Button {
-                            viewModel.copySlotToPasteboard()
-                        } label: {
-                            Label("Copy slot", systemImage: "arrow.up.doc")
-                                .font(.system(size: 10.5, weight: .semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white.opacity(0.6))
-                    }
-
-                    Spacer()
-
-                    if viewModel.clipboardSyncEnabled {
-                        Label("Syncs to PC", systemImage: "arrow.left.arrow.right")
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(Color.stickyAccent.opacity(0.7))
-                    } else {
-                        Text("Sync off")
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(.white.opacity(0.3))
+                    slotPill("Clear", icon: "xmark", primary: false, tint: .white) {
+                        viewModel.slotText = ""
+                        viewModel.slotImage = nil
                     }
                 }
+
+                Spacer()
+
+                Circle()
+                    .fill(viewModel.clipboardSyncEnabled
+                          ? Color(red: 0.30, green: 0.85, blue: 0.45)
+                          : Color.white.opacity(0.18))
+                    .frame(width: 6, height: 6)
+                    .help(viewModel.clipboardSyncEnabled ? "Syncing to PC" : "Sync off — toggle with ⇄ above")
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 18)
         }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
+    }
+
+    private func slotPill(_ title: String, icon: String, primary: Bool, tint: Color = Color.stickyAccent, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(primary ? Color.black : Color.white.opacity(0.75))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(primary ? tint : Color.white.opacity(0.07)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(primary ? 0 : 0.1), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 
     private var slotShell: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
             .fill(Color.white.opacity(0.045))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
             )
     }

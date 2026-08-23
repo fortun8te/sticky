@@ -23,14 +23,17 @@ struct NameDropWarpShape: Shape {
 
         let topRadius = CGFloat(6)
         let bottomRadius = CGFloat(18)
+        // Radial origin at bottom-center — the ripple travels outward in 2D,
+        // exactly like NameDrop's water-ring, not a 1D edge bulge.
         let center = CGPoint(x: rect.midX, y: rect.maxY)
-        let waveRadius = rect.width * (0.16 + phase * 0.72)
-        let spread = rect.width * 0.28
-        let amplitude = rect.height * 0.34 * intensity
+        let maxReach = hypot(rect.width / 2, rect.height)
+        let waveRadius = maxReach * (0.10 + phase * 0.85)
+        let spread = rect.width * 0.11   // crisp ring, not a broad bump
+        let amplitude = rect.height * 0.30 * intensity
 
         func displacement(at point: CGPoint) -> CGFloat {
-            let distance = abs(point.x - center.x)
-            let ring = exp(-pow((distance - waveRadius) / spread, 2))
+            let d = hypot(point.x - center.x, point.y - center.y)
+            let ring = exp(-pow((d - waveRadius) / spread, 2))
             return amplitude * ring
         }
 
@@ -91,28 +94,48 @@ struct NameDropGlow: View {
             guard intensity > 0.01, !reduceMotion else { return }
 
             let origin = CGPoint(x: size.width / 2, y: size.height)
-            let maximumRadius = max(size.width, size.height) * 0.85
+            let maxReach = hypot(size.width / 2, size.height)
 
-            context.addFilter(.blur(radius: size.width * 0.05))
+            // Ambient bloom near the origin
+            context.addFilter(.blur(radius: size.width * 0.06))
             context.blendMode = .plusLighter
 
-            let glowRect = CGRect(
-                x: origin.x - maximumRadius,
-                y: origin.y - maximumRadius,
-                width: maximumRadius * 2,
-                height: maximumRadius * 2
+            let ambientRadius = size.width * 0.55
+            let ambientRect = CGRect(
+                x: origin.x - ambientRadius, y: origin.y - ambientRadius,
+                width: ambientRadius * 2, height: ambientRadius * 2
             )
             context.fill(
-                Path(ellipseIn: glowRect),
+                Path(ellipseIn: ambientRect),
                 with: .radialGradient(
                     Gradient(stops: [
-                        .init(color: Color.stickyIvory.opacity(0.20 * intensity), location: 0),
-                        .init(color: Color.stickyAccent.opacity(0.10 * intensity), location: 0.32),
+                        .init(color: Color.stickyIvory.opacity(0.16 * intensity), location: 0),
+                        .init(color: Color.stickyAccent.opacity(0.08 * intensity), location: 0.4),
                         .init(color: .clear, location: 1)
                     ]),
                     center: origin,
                     startRadius: 0,
-                    endRadius: maximumRadius
+                    endRadius: ambientRadius
+                )
+            )
+
+            // The traveling NameDrop ring — bright edge riding the wavefront
+            let ringRadius = maxReach * (0.10 + phase * 0.85)
+            let band = size.width * 0.09
+            context.fill(
+                Path(ellipseIn: CGRect(
+                    x: origin.x - ringRadius - band, y: origin.y - ringRadius - band,
+                    width: (ringRadius + band) * 2, height: (ringRadius + band) * 2
+                )),
+                with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: Color.stickyAccent.opacity(0.22 * intensity), location: 1),
+                        .init(color: .clear, location: 1)
+                    ]),
+                    center: origin,
+                    startRadius: ringRadius * 0.82,
+                    endRadius: ringRadius + band
                 )
             )
         }

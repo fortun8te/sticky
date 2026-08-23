@@ -5,8 +5,8 @@ import SwiftUI
 
 enum NotchLayout {
     static let compactExtension: CGFloat = 34
-    static let interactivePadX: CGFloat = 24
-    static let interactivePadY: CGFloat = 30
+    static let interactivePadX: CGFloat = 40
+    static let interactivePadY: CGFloat = 34
 
     static func interactiveSize(notchWidth: CGFloat, notchHeight: CGFloat) -> CGSize {
         CGSize(
