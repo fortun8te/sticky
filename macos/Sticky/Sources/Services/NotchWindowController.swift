@@ -25,6 +25,7 @@ final class NotchWindowController {
     private var stateSubscription: AnyCancellable?
     private var expansionSubscription: AnyCancellable?
     private var clickAwayToken: Any?
+    private var localClickToken: Any?
     private var escapeToken: Any?
     private static let windowPadding = CGSize(width: 48, height: 0)
     private static let expandedHeight: CGFloat = 340
@@ -96,7 +97,7 @@ final class NotchWindowController {
         var frame = window.frame
         let targetHeight: CGFloat = expanded
             ? Self.expandedHeight
-            : max((screen.notchSize.height + Self.windowPadding.height), 108)
+            : windowSize(on: screen).height   // same math as build — no drift
         frame.size.height = targetHeight
         frame.origin.y = screen.frame.maxY - targetHeight
         NSAnimationContext.runAnimationGroup { context in
@@ -122,6 +123,19 @@ final class NotchWindowController {
             }
         }
 
+        // Own windows (Shelf etc.) don't reach the global monitor.
+        localClickToken = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, self.viewModel.isExpanded, let window = self.window else { return }
+                if event.window !== window {
+                    self.viewModel.collapseExpanded()
+                }
+            }
+            return event
+        }
+
         escapeToken = NSEvent.addLocalMonitorForEvents(
             matching: .keyDown
         ) { [weak self] event in
@@ -137,6 +151,7 @@ final class NotchWindowController {
 
     private func stopExpansionMonitors() {
         if let token = clickAwayToken { NSEvent.removeMonitor(token); clickAwayToken = nil }
+        if let token = localClickToken { NSEvent.removeMonitor(token); localClickToken = nil }
         if let token = escapeToken { NSEvent.removeMonitor(token); escapeToken = nil }
     }
 
@@ -192,7 +207,7 @@ final class NotchWindowController {
     private func windowSize(on screen: NSScreen) -> NSSize {
         let notch = notchSize(on: screen)
         // Window == the interactive area exactly (tap rect incl. bloom strip).
-        let width = max(notch.width + NotchLayout.interactivePadX, 220)
+        let width = max(notch.width + NotchLayout.interactivePadX * 2, 220)
         let height = max(notch.height + NotchLayout.interactivePadY + 26, 96)
         return NSSize(
             width: min(width, screen.frame.width),

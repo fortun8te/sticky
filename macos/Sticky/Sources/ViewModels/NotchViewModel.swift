@@ -115,7 +115,10 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
         }
     }
 
+    private var pointerIsOver = false
+
     func setPointerHover(_ hovering: Bool) {
+        pointerIsOver = hovering
         guard !isExpanded else { return }
         cancelHoverReset()
 
@@ -125,7 +128,6 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
                 state = .hover
             }
         } else if case .hover = state {
-            // Exit immediately — no grace delay.
             withMotionAnimation(response: 0.24, dampingFraction: 0.88) {
                 state = .idle
             }
@@ -270,6 +272,7 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
                 }
 
                 guard !Task.isCancelled else {
+                    guard self.activeTransferGeneration == generation else { return }
                     self.resetToIdle()
                     return
                 }
@@ -585,6 +588,16 @@ final class NotchViewModel: NSObject, ObservableObject, DropDelegate {
     func resetToIdle() {
         withMotionAnimation(response: 0.4, dampingFraction: 0.88) {
             state = .idle
+        }
+        // If the cursor never moved during the transient state, macOS won't
+        // re-fire onHover — restore hover directly so the island isn't dead.
+        if pointerIsOver, !isExpanded {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, case .idle = self.state, self.pointerIsOver, !self.isExpanded else { return }
+                self.withMotionAnimation(response: 0.22, dampingFraction: 0.85) {
+                    self.state = .hover
+                }
+            }
         }
     }
 

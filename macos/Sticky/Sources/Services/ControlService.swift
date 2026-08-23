@@ -214,6 +214,7 @@ final class ControlService {
     }
 
     private func runTransfer(id: String) async {
+        defer { tasks[id] = nil }
         guard var record = records[id] else { return }
         record.state = "sending"
         record.updatedAt = Date()

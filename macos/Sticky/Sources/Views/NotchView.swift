@@ -28,7 +28,7 @@ struct NotchView: View {
                     }
 
                 island
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(displayState == .hover || displayState == .idle)
             }
         }
         .frame(
@@ -234,15 +234,7 @@ struct NotchView: View {
         case .idle:
             Color.clear
         case .hover:
-            HStack(spacing: 6) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                Text("Send to PC")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .lineLimit(1)
-            }
+            InlineSlotField(viewModel: viewModel)
         case .armed(let count, let previewData):
             armedContent(count: count, previewData: previewData)
         case .transferring(let progress, let fileName):
@@ -1242,5 +1234,61 @@ struct SlotView: View {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
             )
+    }
+}
+
+
+/// Single-line slot editor that lives directly in the hover island.
+/// Type or ⌘V — content lands in the shared Slot between machines.
+struct InlineSlotField: View {
+    @ObservedObject var viewModel: NotchViewModel
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "clipboard")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.stickyAccent)
+
+            TextField("Type or ⌘V…", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .rounded))
+                .foregroundStyle(.white.opacity(0.92))
+                .focused($focused)
+                .onSubmit {
+                    if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                        viewModel.writeSlot(text: text)
+                        text = ""
+                    }
+                }
+                .onExitCommand {
+                    text = ""
+                }
+
+            if !text.isEmpty {
+                Button {
+                    if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                        viewModel.writeSlot(text: text)
+                        text = ""
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.stickyAccent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 2)
+        .onHover { hovering in
+            if hovering && !focused { }
+        }
+        .onChange(of: focused) { _, isFocused in
+            _ = isFocused
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            // Clicking the island still expands unless the field is focused.
+        })
     }
 }

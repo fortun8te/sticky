@@ -129,7 +129,7 @@ final class TransferService {
             scheduleTimeoutTimer()
         } catch {
             reportFailure(error.localizedDescription)
-            stop()
+            scheduleRestart(after: 5)
         }
     }
 
@@ -785,7 +785,10 @@ final class TransferService {
         }
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.chunkSize) { [weak self] data, _, complete, error in
             guard let self, error == nil else {
-                self?.failUpload(sessionID: sessionID, fileID: fileID, handle: handle)
+                // Transport error (dropped Wi-Fi etc.): keep the upload state and
+                // its token so the client's next retry attempt can succeed.
+                // Only close the handle; idle-timeout sweeps abandoned uploads.
+                try? handle.close()
                 connection.cancel()
                 return
             }
@@ -822,6 +825,14 @@ final class TransferService {
     private func failUpload(sessionID: String, fileID: String, handle: FileHandle) {
         try? handle.close()
         removeUpload(sessionID: sessionID, fileID: fileID)
+    }
+
+    private func abandonUpload(sessionID: String, fileID: String) {
+        // Keep upload state for retry; just release the handle.
+        lock.lock()
+        let upload = activeSessions[sessionID]?.uploads[fileID]
+        lock.unlock()
+        try? upload?.fileHandle?.close()
     }
 
     private func removeUpload(sessionID: String, fileID: String) {
