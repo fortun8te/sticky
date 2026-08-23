@@ -28,7 +28,9 @@ public sealed class PairingService : IDisposable
         _outgoingTokens = LoadTokens(OutgoingTokensPath);
     }
 
-    public string GeneratePin() => Random.Shared.Next(100000, 999999).ToString();
+    // A lockout only buys anything if the code behind it is unguessable, so the PIN comes from the
+    // CSPRNG over the full six-digit range (leading zeros included) rather than Random.Shared.
+    public string GeneratePin() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
 
     public X509Certificate2 GetOrCreateCertificate()
     {
@@ -54,6 +56,8 @@ public sealed class PairingService : IDisposable
     public bool IsPinned(string deviceId, string fingerprint) =>
         GetPinnedFingerprint(deviceId) is { } stored &&
         string.Equals(stored, fingerprint, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsPeerPaired(string deviceId) => GetPinnedFingerprint(deviceId) != null;
 
     public string? GetPinnedFingerprint(string deviceId)
     {

@@ -21,6 +21,15 @@ public sealed class TransferService : IDisposable
     private const int MaximumIncomingFiles = 100;
     private const long MaximumIncomingBytes = 2L * 1024 * 1024 * 1024;
     private const long MaximumControlBodyBytes = 1024 * 1024;
+    private const int MaximumConcurrentConnections = 32;
+    private const int PairingFailureThreshold = 5;
+    private const string PairProofContext = "sticky-pair-response-v1";
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RequestReadTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UploadIdleTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan PairingLockoutBase = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan PairingLockoutCap = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PairingWindowDuration = TimeSpan.FromMinutes(5);
 
     private readonly DiscoveryService _discovery;
     private readonly PairingService _pairing;
@@ -28,11 +37,15 @@ public sealed class TransferService : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private TcpListener? _listener;
     private Task? _acceptTask;
+    private int _liveConnections;
     private readonly Timer _cleanupTimer;
     private readonly object _pairingCodeSync = new();
     private string _currentPin;
     private DateTimeOffset _pinExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
     private int _pinAttempts;
+    private DateTimeOffset _pinLockedUntil = DateTimeOffset.MinValue;
+    private bool _pairingWindowEverOpened;
+    private DateTimeOffset _pairingWindowExpiresAt = DateTimeOffset.MinValue;
 
     public event Action<TransferProgress>? Sending;
     public event Action<TransferProgress>? Receiving;
@@ -75,23 +88,81 @@ public sealed class TransferService : IDisposable
         _currentPin = _pairing.GeneratePin();
         _pinExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         _pinAttempts = 0;
+        _pinLockedUntil = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Called by the UI when the user actually opens pairing, so /api/v1/pair guesses are only
+    /// entertained while a person is looking at the six-digit code.
+    /// </summary>
+    public void BeginPairingWindow(TimeSpan? duration = null)
+    {
+        lock (_pairingCodeSync)
+        {
+            _pairingWindowEverOpened = true;
+            _pairingWindowExpiresAt = DateTimeOffset.UtcNow.Add(duration ?? PairingWindowDuration);
+            _pinAttempts = 0;
+            _pinLockedUntil = DateTimeOffset.MinValue;
+        }
+    }
+
+    public void EndPairingWindow()
+    {
+        lock (_pairingCodeSync)
+        {
+            _pairingWindowEverOpened = true;
+            _pairingWindowExpiresAt = DateTimeOffset.MinValue;
+        }
     }
 
     private bool ConsumePairingCode(string supplied)
     {
         lock (_pairingCodeSync)
         {
-            if (DateTimeOffset.UtcNow >= _pinExpiresAt) RotatePinLocked();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            // Once the app starts announcing pairing windows, guesses outside one are refused
+            // outright. Until then the previous always-listening behaviour stands, so wiring the
+            // BeginPairingWindow hook up is what turns this gate on.
+            if (_pairingWindowEverOpened && now >= _pairingWindowExpiresAt) return false;
+            if (now < _pinLockedUntil) return false;
+            if (now >= _pinExpiresAt) RotatePinLocked();
             if (!ConstantTimeEquals(supplied, _currentPin))
             {
                 _pinAttempts++;
-                if (_pinAttempts >= 5) RotatePinLocked();
+                // Back off rather than rotate. Rotating on failure handed the attacker a fresh
+                // attempt budget every five guesses and silently invalidated the code the user
+                // was reading off the tray menu.
+                if (_pinAttempts >= PairingFailureThreshold)
+                {
+                    double overage = _pinAttempts - PairingFailureThreshold;
+                    double seconds = Math.Min(PairingLockoutCap.TotalSeconds, PairingLockoutBase.TotalSeconds * Math.Pow(2, overage));
+                    _pinLockedUntil = now.AddSeconds(seconds);
+                }
                 return false;
             }
             RotatePinLocked();
             return true;
         }
     }
+
+    /// <summary>
+    /// The peer a send goes to when the user has not named one. Discovery is unauthenticated, so
+    /// any LAN host can announce itself under a name that happens to be seen most recently.
+    /// Trust therefore outranks announcement order; unpaired peers stay as a last resort so a
+    /// first send on a fresh install can still lead to pairing.
+    /// </summary>
+    public StickyDevice? DefaultTarget()
+    {
+        IReadOnlyList<StickyDevice> peers = _discovery.Peers;
+        List<StickyDevice> paired = [.. peers.Where(peer => _pairing.IsPeerPaired(peer.Id))];
+        return paired.FirstOrDefault(IsRemotePlatform)
+               ?? paired.FirstOrDefault()
+               ?? peers.FirstOrDefault(IsRemotePlatform)
+               ?? peers.FirstOrDefault();
+    }
+
+    private static bool IsRemotePlatform(StickyDevice peer) =>
+        !peer.Platform.Equals("win", StringComparison.OrdinalIgnoreCase);
 
     public void UnpairAll()
     {
@@ -143,39 +214,58 @@ public sealed class TransferService : IDisposable
                 PublishFailure($"Transfer listener failed: {ex.Message}");
                 continue;
             }
+            // Refusing beats queueing: an unbounded accept backlog is exactly how a stalled client
+            // farm exhausts this process's handles and starves a real transfer. There is no TLS
+            // session yet, so the only honest refusal is to drop the socket.
+            if (Interlocked.Increment(ref _liveConnections) > MaximumConcurrentConnections)
+            {
+                Interlocked.Decrement(ref _liveConnections);
+                client.Dispose();
+                continue;
+            }
             _ = HandleClientAsync(client, certificate, stopping);
         }
     }
 
     private async Task HandleClientAsync(TcpClient client, X509Certificate2 certificate, CancellationToken stopping)
     {
-        using TcpClient connection = client;
-        connection.NoDelay = true;
-        await using NetworkStream raw = connection.GetStream();
-        await using SslStream secure = new(raw, false);
         try
         {
-            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(stopping);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            await secure.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            using TcpClient connection = client;
+            connection.NoDelay = true;
+            await using NetworkStream raw = connection.GetStream();
+            await using SslStream secure = new(raw, false);
+            try
             {
-                ServerCertificate = certificate,
-                ClientCertificateRequired = true,
-                EnabledSslProtocols = SslProtocols.Tls13,
-                RemoteCertificateValidationCallback = (_, _, _, _) => true
-            }, timeout.Token);
-            X509Certificate2 remote = new(secure.RemoteCertificate ?? throw new AuthenticationException("Client certificate required."));
-            string peerFingerprint = _pairing.Fingerprint(remote);
-            timeout.CancelAfter(TimeSpan.FromMinutes(10));
-            await ServeAsync(secure, peerFingerprint, timeout.Token);
+                // Every connection is on a clock. A peer that opens a socket and then goes quiet —
+                // no bytes, or a Content-Length it never sends — would otherwise sit in a read for
+                // the whole ten-minute session window holding a handle and its buffers.
+                using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+                timeout.CancelAfter(HandshakeTimeout);
+                await secure.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = certificate,
+                    ClientCertificateRequired = true,
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                    RemoteCertificateValidationCallback = (_, _, _, _) => true
+                }, timeout.Token);
+                X509Certificate2 remote = new(secure.RemoteCertificate ?? throw new AuthenticationException("Client certificate required."));
+                string peerFingerprint = _pairing.Fingerprint(remote);
+                timeout.CancelAfter(RequestReadTimeout);
+                await ServeAsync(secure, peerFingerprint, timeout, timeout.Token);
+            }
+            catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or OperationCanceledException)
+            {
+                if (ex is not OperationCanceledException) PublishFailure($"Transfer connection failed: {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is IOException or SocketException or AuthenticationException or OperationCanceledException)
+        finally
         {
-            if (ex is not OperationCanceledException) PublishFailure($"Transfer connection failed: {ex.Message}");
+            Interlocked.Decrement(ref _liveConnections);
         }
     }
 
-    private async Task ServeAsync(SslStream stream, string peerFingerprint, CancellationToken stopping)
+    private async Task ServeAsync(SslStream stream, string peerFingerprint, CancellationTokenSource deadline, CancellationToken stopping)
     {
         (byte[] HeaderBytes, byte[] InitialBody) header = await ReadHeadersAsync(stream, stopping);
         HttpRequest request = ParseRequest(Encoding.UTF8.GetString(header.HeaderBytes));
@@ -192,7 +282,7 @@ public sealed class TransferService : IDisposable
                 await HandlePrepareAsync(stream, request, await ReadBodyAsync(stream, header.InitialBody, request.ContentLength, stopping, MaximumControlBodyBytes), peerFingerprint, stopping);
                 break;
             case ("POST", "/api/v1/upload"):
-                await HandleUploadAsync(stream, request, header.InitialBody, peerFingerprint, stopping);
+                await HandleUploadAsync(stream, request, header.InitialBody, peerFingerprint, deadline, stopping);
                 break;
             case ("POST", "/api/v1/complete"):
                 await HandleCompleteAsync(stream, request, peerFingerprint, stopping);
@@ -232,10 +322,14 @@ public sealed class TransferService : IDisposable
                 await WriteEmptyAsync(stream, 401, stopping);
                 return;
             }
-                _pairing.PinPeer(deviceId, actualFingerprint);
-                _pairing.SetOutgoingToken(deviceId, returnToken);
-                string pairingToken = _pairing.CreateIncomingToken(deviceId);
-                await WriteJsonAsync(stream, 200, JsonSerializer.Serialize(new { paired = true, token = pairingToken }), stopping);
+            _pairing.PinPeer(deviceId, actualFingerprint);
+            _pairing.SetOutgoingToken(deviceId, returnToken);
+            string pairingToken = _pairing.CreateIncomingToken(deviceId);
+            // Lets the other side confirm we knew the PIN before it pins our certificate.
+            // Unknown fields are ignored by protocol v1 clients.
+            string localFingerprint = _pairing.Fingerprint(_pairing.GetOrCreateCertificate());
+            string pinProof = PairProof(providedPin, localFingerprint, returnToken);
+            await WriteJsonAsync(stream, 200, JsonSerializer.Serialize(new { paired = true, token = pairingToken, pinProof }), stopping);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
         {
@@ -309,8 +403,11 @@ public sealed class TransferService : IDisposable
         return true;
     }
 
-    private async Task HandleUploadAsync(SslStream stream, HttpRequest request, byte[] initialBody, string peerFingerprint, CancellationToken stopping)
+    private async Task HandleUploadAsync(SslStream stream, HttpRequest request, byte[] initialBody, string peerFingerprint, CancellationTokenSource deadline, CancellationToken stopping)
     {
+        // File bodies are streamed, so the short header deadline gives way to an idle deadline
+        // that every arriving chunk renews.
+        deadline.CancelAfter(UploadIdleTimeout);
         Dictionary<string, string> query = ParseQuery(request.Query);
         IncomingSession? session;
         lock (_sessions)
@@ -355,6 +452,7 @@ public sealed class TransferService : IDisposable
             {
                 int read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, request.ContentLength - written)), stopping);
                 if (read == 0) throw new IOException("Upload ended before Content-Length was reached");
+                deadline.CancelAfter(UploadIdleTimeout);
                 await output.WriteAsync(buffer.AsMemory(0, read), stopping);
                 hasher.AppendData(buffer.AsSpan(0, read));
                 written += read;
@@ -561,13 +659,59 @@ public sealed class TransferService : IDisposable
         string returnToken = _pairing.GenerateToken();
         string localFingerprint = _pairing.Fingerprint(_pairing.GetOrCreateCertificate());
         object payload = new { pin, returnToken, fingerprint = localFingerprint, device = new { id = _discovery.Self.Id, name = _discovery.Self.Name } };
-        HttpResponse pair = await RequestAsync(peer, null, "POST", "/api/v1/pair", JsonSerializer.SerializeToUtf8Bytes(payload), stopping);
+        HttpResponse pair = await RequestAsync(peer, fingerprint, "POST", "/api/v1/pair", JsonSerializer.SerializeToUtf8Bytes(payload), stopping);
         if (pair.StatusCode != 200) throw new UnauthorizedAccessException("That pairing code was not accepted.");
-        string token = JsonSerializer.Deserialize<JsonElement>(pair.Body, JsonOptions).GetProperty("token").GetString() ??
-                       throw new UnauthorizedAccessException("The other Sticky app did not finish pairing.");
-        _pairing.PinPeer(peerId, fingerprint);
+        string responderFingerprint = pair.Fingerprint ?? throw new SecurityException("The other Sticky app presented no certificate.");
+        JsonElement answer = JsonSerializer.Deserialize<JsonElement>(pair.Body, JsonOptions);
+        if (answer.ValueKind != JsonValueKind.Object)
+            throw new UnauthorizedAccessException("The other Sticky app did not finish pairing.");
+        string token = answer.TryGetProperty("token", out JsonElement tokenElement) ? tokenElement.GetString() ?? "" : "";
+        // Nothing is pinned or stored until the answer itself has been checked: a bare HTTP 200
+        // from an unknown LAN host is not evidence of pairing.
+        ValidatePairResponse(answer, pin, returnToken, token, responderFingerprint, localFingerprint);
+        _pairing.PinPeer(peerId, responderFingerprint);
         _pairing.SetOutgoingToken(peerId, token);
         _pairing.SetIncomingToken(peerId, returnToken);
+    }
+
+    /// <summary>
+    /// Structural floor, enforced against every peer: the answer has to look like a token this
+    /// peer minted, not an echo of what we just sent it and not a filler string. Peers that speak
+    /// the proof extension are additionally held to it; peers that send no proof (protocol v1)
+    /// only clear the structural floor, so an existing pairing keeps working.
+    /// </summary>
+    private static void ValidatePairResponse(JsonElement answer, string pin, string returnToken, string token, string responderFingerprint, string localFingerprint)
+    {
+        bool paired = answer.TryGetProperty("paired", out JsonElement pairedElement) &&
+                      pairedElement.ValueKind == JsonValueKind.True;
+        if (!paired || !IsChecksum(token) || token.Distinct().Count() <= 1 ||
+            ConstantTimeEquals(token, returnToken) ||
+            ConstantTimeEquals(token, responderFingerprint) ||
+            ConstantTimeEquals(token, localFingerprint))
+            throw new UnauthorizedAccessException("The other Sticky app did not finish pairing.");
+
+        // A peer that names its own fingerprint must name the one it presented.
+        if (answer.TryGetProperty("fingerprint", out JsonElement claimedElement) &&
+            claimedElement.ValueKind == JsonValueKind.String &&
+            !ConstantTimeEquals((claimedElement.GetString() ?? "").ToLowerInvariant(), responderFingerprint.ToLowerInvariant()))
+            throw new SecurityException("The other Sticky app named a different certificate.");
+
+        if (!answer.TryGetProperty("pinProof", out JsonElement proofElement) || proofElement.ValueKind != JsonValueKind.String)
+            return;
+        string expected = PairProof(pin, responderFingerprint, returnToken);
+        if (!ConstantTimeEquals((proofElement.GetString() ?? "").ToLowerInvariant(), expected))
+            throw new SecurityException("The other Sticky app could not prove it knew the pairing code.");
+    }
+
+    /// <summary>
+    /// Proof that the responder knew the pairing PIN, so a rogue host that simply answers 200
+    /// cannot get its certificate pinned. The return token is freshly random per attempt, so it
+    /// doubles as the challenge nonce.
+    /// </summary>
+    private static string PairProof(string pin, string responderFingerprint, string returnToken)
+    {
+        byte[] message = Encoding.UTF8.GetBytes(PairProofContext + responderFingerprint.ToLowerInvariant() + returnToken.ToLowerInvariant());
+        return Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(pin), message)).ToLowerInvariant();
     }
 
     private async Task<(string Fingerprint, string AuthorizationToken, PrepareResponse Response)> PrepareUploadAsync(TransferRequest request, StickyDevice peer, CancellationToken stopping)
