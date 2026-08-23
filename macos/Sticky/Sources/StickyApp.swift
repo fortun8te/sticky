@@ -152,6 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let available = !peers.isEmpty
                 self.viewModel.updatePeerAvailability(available)
                 self.viewModel.peerName = peers.first?.name
+                // A peer you cannot send to yet is the one thing worth
+                // interrupting for — surface it instead of waiting for the
+                // user to go looking in a menu.
+                self.viewModel.hasUnpairedPeer = peers.contains { !PairingService.shared.isPeerPaired($0.id) }
                 self.refreshPeerCount()
             }
 
@@ -485,7 +489,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         accessory.addArrangedSubview(peerPicker)
 
-        let codeField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
+        // Not a secure field: this code is printed on the other machine's
+        // screen, so hiding it from the person typing it only hides their typos.
+        let codeField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
+        codeField.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
         codeField.placeholderString = "Six-digit code"
         codeField.maximumNumberOfLines = 1
         accessory.addArrangedSubview(codeField)

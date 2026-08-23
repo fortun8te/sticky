@@ -103,17 +103,37 @@ private struct RecentClips: View {
     @ObservedObject var viewModel: NotchViewModel
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DS.Space.xs + 2) {
-                ForEach(viewModel.clipboardHistory.prefix(8)) { entry in
-                    ClipChip(
-                        entry: entry,
-                        onSend: { viewModel.sendClipboardEntry(entry) },
-                        onRemove: { viewModel.deleteClipboardEntry(entry) }
-                    )
+        HStack(spacing: DS.Space.s) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DS.Space.xs + 2) {
+                    ForEach(viewModel.clipboardHistory.prefix(8)) { entry in
+                        ClipChip(
+                            entry: entry,
+                            onSend: { viewModel.sendClipboardEntry(entry) },
+                            onRemove: { viewModel.deleteClipboardEntry(entry) }
+                        )
+                    }
                 }
+                .padding(.vertical, 1)
             }
-            .padding(.vertical, 1)
+
+            // Outside the ScrollView on purpose: with a long history the clips
+            // scroll, and a control that scrolls out of reach is not a control.
+            Button { viewModel.clearClipboardHistory() } label: {
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: "trash")
+                        .font(DS.Type_.symbol(10, matching: .medium))
+                    Text("Clear")
+                        .font(DS.Type_.body(11))
+                }
+                .foregroundStyle(DS.Colors.textSecondary)
+                .padding(.horizontal, DS.Space.s)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(DS.Colors.surface))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Empty Sticky's clipboard — every clip, including pinned ones")
         }
         .frame(height: 30)
     }

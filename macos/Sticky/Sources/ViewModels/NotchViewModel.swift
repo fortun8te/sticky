@@ -537,6 +537,8 @@ final class NotchViewModel: NSObject, ObservableObject {
 
     @Published private(set) var peerCount: Int = 0
     @Published var peerName: String?
+    /// A device is nearby that we have not established trust with yet.
+    @Published var hasUnpairedPeer = false
     @Published var selectedShelfIDs: Set<UUID> = []
     @Published var isSelecting = false
     @Published var clipboardSyncEnabled: Bool {

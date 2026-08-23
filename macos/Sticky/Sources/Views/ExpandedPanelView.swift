@@ -75,21 +75,46 @@ struct ExpandedPanel: View {
         }
     }
 
+    /// Three states, and the middle one is the point: a device found but not
+    /// yet trusted is the only moment the app should ask for something. It used
+    /// to look identical to "connected", so the first send just failed.
+    @ViewBuilder
     private var peerChip: some View {
-        HStack(spacing: DS.Space.xs + 1) {
-            Circle()
-                .fill(viewModel.peerCount > 0 ? DS.Colors.control : DS.Colors.textFaint)
-                .frame(width: 5, height: 5)
-            Text(viewModel.peerCount > 0 ? (viewModel.peerName ?? "PC") : "No PC nearby")
-                .font(DS.Type_.body(11))
-                .foregroundStyle(viewModel.peerCount > 0 ? DS.Colors.textSecondary : DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        if viewModel.hasUnpairedPeer {
+            Button { viewModel.requestPairing() } label: {
+                HStack(spacing: DS.Space.xs + 1) {
+                    Image(systemName: "link")
+                        .font(DS.Type_.symbol(10, matching: .semibold))
+                    Text("Pair \(viewModel.peerName ?? "device")")
+                        .font(DS.Type_.title(11))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(DS.Colors.onControl)
+                .padding(.horizontal, DS.Space.s)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(DS.Colors.control))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("This device is nearby but not trusted yet")
+            .layoutPriority(-1)
+        } else {
+            HStack(spacing: DS.Space.xs + 1) {
+                Circle()
+                    .fill(viewModel.peerCount > 0 ? DS.Colors.control : DS.Colors.textFaint)
+                    .frame(width: 5, height: 5)
+                Text(viewModel.peerCount > 0 ? (viewModel.peerName ?? "PC") : "No PC nearby")
+                    .font(DS.Type_.body(11))
+                    .foregroundStyle(viewModel.peerCount > 0 ? DS.Colors.textSecondary : DS.Colors.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.horizontal, DS.Space.s)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(DS.Colors.surface))
+            .layoutPriority(-1)
         }
-        .padding(.horizontal, DS.Space.s)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(DS.Colors.surface))
-        .layoutPriority(-1)
     }
 
     private func headerButton(icon: String, active: Bool, help: String, action: @escaping () -> Void) -> some View {
