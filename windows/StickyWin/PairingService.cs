@@ -133,21 +133,21 @@ public sealed class PairingService : IDisposable
 
     private static Dictionary<string, string> LoadPins()
     {
-        if (!File.Exists(PinsPath)) return [];
-        return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(PinsPath)) ?? [];
+        if (!File.Exists(PinsPath)) return new();
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(PinsPath)) ?? new();
     }
 
     private static Dictionary<string, string> LoadTokens(string path)
     {
-        if (!File.Exists(path)) return [];
+        if (!File.Exists(path)) return new();
         try
         {
             byte[] plaintext = ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser);
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(plaintext) ?? [];
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(plaintext) ?? new();
         }
         catch (CryptographicException)
         {
-            return [];
+            return new();
         }
     }
 

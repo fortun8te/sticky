@@ -113,6 +113,11 @@ public sealed class DiscoveryService : IDisposable
     /// </summary>
     private void BindListener()
     {
+        // The failure message is raised AFTER the lock is released. A subscriber
+        // that reacts by calling Dispose() would otherwise deadlock, because
+        // Dispose takes this same lock — every other event in this file is
+        // already raised outside its lock for exactly this reason.
+        string? failure = null;
         lock (_listenerSync)
         {
             if (_disposed || _stop.IsCancellationRequested || _listener != null) return;
@@ -127,10 +132,12 @@ public sealed class DiscoveryService : IDisposable
             {
                 // Relaunching while the previous process still owns the port used to kill
                 // discovery for the whole session. Retry instead.
-                Failed?.Invoke($"Discovery listener unavailable: {ex.Message}. Retrying in {RebindDelay.TotalSeconds:0}s.");
+                failure = $"Discovery listener unavailable: {ex.Message}. Retrying in {RebindDelay.TotalSeconds:0}s.";
                 ScheduleRebind();
             }
         }
+
+        if (failure != null) Failed?.Invoke(failure);
     }
 
     private void ScheduleRebind()

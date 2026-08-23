@@ -209,6 +209,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if viewModel.clipboardSyncEnabled {
             startPasteboardWatcher()
         }
+        // Opening the shelf while an untrusted device is nearby IS a person
+        // standing at the pairing affordance, so it opens the inbound pairing
+        // window — otherwise the PC could never initiate, because our gate
+        // would be shut whenever the menu had not been touched in five minutes.
+        // Closing the shelf shuts it again; the PIN and its lockout still apply.
+        viewModel.onExpandedChanged = { [weak self] expanded in
+            guard let self, let transfer = self.transferService else { return }
+            if expanded, self.viewModel.hasUnpairedPeer {
+                transfer.beginPairingWindow()
+            } else if !expanded {
+                transfer.endPairingWindow()
+            }
+        }
+
         viewModel.onClipboardSyncChanged = { [weak self] enabled in
             guard let self else { return }
             if enabled {

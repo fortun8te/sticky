@@ -1,4 +1,181 @@
 <Application x:Class="StickyWin.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+
+        <!--
+            The Windows half of Sticky's one token file — the counterpart to
+            macos/Sticky/Sources/Views/DesignSystem.swift. Same rule as the Mac:
+            a literal colour, radius or duration in a view is a bug. Everything
+            the drop widget, the pairing window and the tray draw comes from a
+            key in here.
+
+            Three things are carried over from the Mac deliberately:
+
+            1. ONE accent, taken from the operating system. On the Mac that is
+               NSColor.controlAccentColor; on Windows it is the user's accent
+               (SystemParameters.WindowGlassColor). The literals below are only
+               the fallback — App.ApplyAccentTokens replaces every
+               "Sticky.*.Accent*" / "*Drag" / "*Busy" key at startup and again
+               whenever the user changes their accent. Do not read them as the
+               real colours.
+
+            2. The warm ramp (#FFF6E5 → #FFC178) is AMBIENT LIGHT ONLY. On
+               Windows that means the success settle and the checkmark, nothing
+               else. A warm-tinted button would be a second accent.
+
+            3. Motion is asymmetric: opening is springy (BackEase, restrained
+               amplitude), closing is smooth with no bounce at all. Sticky.Duration.*
+               carries the timings; App.xaml.cs (StickyTheme) carries the easings,
+               because WPF easing functions cannot be expressed as a bare value.
+        -->
+
+        <!-- ============================== Colour ============================== -->
+
+        <!-- Replaced at startup from the Windows accent. -->
+        <Color x:Key="Sticky.Color.Accent">#FF4CA6FF</Color>
+        <SolidColorBrush x:Key="Sticky.Brush.Accent" Color="#FF4CA6FF" />
+        <SolidColorBrush x:Key="Sticky.Brush.OnAccent" Color="#FFFFFFFF" />
+
+        <!-- The pill's own surface. Not flat #000: unlike the notch, nothing here
+             touches physical black bezel, so a near-black over the wallpaper is
+             correct and pure #000 would read as a hole. -->
+        <Color x:Key="Sticky.Color.Surface">#F21A1A1C</Color>
+        <!-- Surface + a 16% wash of the accent. Replaced at startup. -->
+        <Color x:Key="Sticky.Color.SurfaceDrag">#FA1D2430</Color>
+        <!-- The warm settle after a successful transfer — ambient light, per the
+             Mac's rule that the ramp is never chrome. -->
+        <Color x:Key="Sticky.Color.SurfaceResolved">#F5231F19</Color>
+
+        <Color x:Key="Sticky.Color.Edge">#33FFFFFF</Color>
+        <!-- Replaced at startup: the accent at full and at two-fifths. -->
+        <Color x:Key="Sticky.Color.EdgeDrag">#E64CA6FF</Color>
+        <Color x:Key="Sticky.Color.EdgeBusy">#664CA6FF</Color>
+        <Color x:Key="Sticky.Color.EdgeResolved">#59FFC178</Color>
+
+        <!-- The warm ramp. Ambient only. -->
+        <SolidColorBrush x:Key="Sticky.Brush.Warm" Color="#FFFFC178" />
+
+        <!-- Text tiers. Nothing is pure white — on a near-black surface it vibrates. -->
+        <SolidColorBrush x:Key="Sticky.Brush.TextPrimary" Color="#EBFFFFFF" />
+        <SolidColorBrush x:Key="Sticky.Brush.TextSecondary" Color="#9EFFFFFF" />
+        <SolidColorBrush x:Key="Sticky.Brush.TextTertiary" Color="#66FFFFFF" />
+
+        <!-- Surfaces inside the pill and inside the pairing window. -->
+        <SolidColorBrush x:Key="Sticky.Brush.Tile" Color="#0CFFFFFF" />
+        <SolidColorBrush x:Key="Sticky.Brush.TileStrong" Color="#17FFFFFF" />
+        <SolidColorBrush x:Key="Sticky.Brush.Track" Color="#26FFFFFF" />
+
+        <!-- The pairing window is a real window over the desktop, so it is opaque. -->
+        <SolidColorBrush x:Key="Sticky.Brush.PanelBackground" Color="#FF141416" />
+        <SolidColorBrush x:Key="Sticky.Brush.PanelSurface" Color="#FF1D1D20" />
+        <SolidColorBrush x:Key="Sticky.Brush.PanelField" Color="#FF0E0E10" />
+
+        <!-- ============================== Radius ============================== -->
+
+        <CornerRadius x:Key="Sticky.Radius.Pill">16</CornerRadius>
+        <!-- A nested radius is outer minus padding, never eyeballed: 16 - 7. -->
+        <CornerRadius x:Key="Sticky.Radius.Tile">9</CornerRadius>
+        <CornerRadius x:Key="Sticky.Radius.Track">2</CornerRadius>
+        <CornerRadius x:Key="Sticky.Radius.Action">11</CornerRadius>
+        <CornerRadius x:Key="Sticky.Radius.Panel">12</CornerRadius>
+        <CornerRadius x:Key="Sticky.Radius.Field">8</CornerRadius>
+
+        <!-- ============================= Duration ============================= -->
+
+        <!-- Opening: springy, and long enough for the overshoot to be seen. -->
+        <Duration x:Key="Sticky.Duration.Open">0:0:0.34</Duration>
+        <!-- Closing: shorter and smooth. A pill that wobbles shut reads as indecision. -->
+        <Duration x:Key="Sticky.Duration.Close">0:0:0.22</Duration>
+        <!-- Hover/drag tint. -->
+        <Duration x:Key="Sticky.Duration.Tint">0:0:0.16</Duration>
+        <!-- Progress steps. Long enough to glide between packets, short enough to feel live. -->
+        <Duration x:Key="Sticky.Duration.Progress">0:0:0.28</Duration>
+        <!-- The success/failure resolution: a bright beat, then a slow return to rest. -->
+        <Duration x:Key="Sticky.Duration.Settle">0:0:1.10</Duration>
+        <!-- The glyph pop that marks a resolution. -->
+        <Duration x:Key="Sticky.Duration.Pop">0:0:0.30</Duration>
+
+        <!-- How long a resolved state stays on screen before the pill returns to
+             idle. Failure dwells far longer than success: "Sent" needs a glance,
+             "here is why it did not send" needs reading. -->
+        <Duration x:Key="Sticky.Duration.DwellSuccess">0:0:2.4</Duration>
+        <Duration x:Key="Sticky.Duration.DwellFailure">0:0:6.0</Duration>
+        <!-- A jittery hand must not flicker the pill in and out of drag-over. -->
+        <Duration x:Key="Sticky.Duration.DragGrace">0:0:0.12</Duration>
+
+        <!-- ============================== Controls ============================
+             Only the pairing window uses these. They exist here rather than in
+             code-behind for the same reason the colours do: one place to look.
+             Accent references are DynamicResource, because ApplyAccentTokens
+             swaps the accent brush object at runtime and a StaticResource would
+             hold on to the fallback blue forever.
+        -->
+
+        <Style x:Key="Sticky.Style.Button" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Sticky.Brush.TextPrimary}" />
+            <Setter Property="Background" Value="{StaticResource Sticky.Brush.TileStrong}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="18,9,18,9" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Shell"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{StaticResource Sticky.Radius.Field}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shell" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shell" Property="Opacity" Value="0.68" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Shell" Property="Opacity" Value="0.35" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Sticky.Style.PrimaryButton" TargetType="Button" BasedOn="{StaticResource Sticky.Style.Button}">
+            <Setter Property="Background" Value="{DynamicResource Sticky.Brush.Accent}" />
+            <Setter Property="Foreground" Value="{StaticResource Sticky.Brush.OnAccent}" />
+        </Style>
+
+        <Style x:Key="Sticky.Style.CodeField" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource Sticky.Brush.PanelField}" />
+            <Setter Property="Foreground" Value="{StaticResource Sticky.Brush.TextPrimary}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource Sticky.Brush.Accent}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource Sticky.Brush.Accent}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontFamily" Value="Consolas, Segoe UI" />
+            <Setter Property="FontSize" Value="24" />
+            <Setter Property="Padding" Value="12,9,12,9" />
+            <!-- TextAlignment, not HorizontalContentAlignment: inside a custom
+                 TextBox template the content host lays the text out itself. -->
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="{StaticResource Sticky.Radius.Field}"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
 </Application>

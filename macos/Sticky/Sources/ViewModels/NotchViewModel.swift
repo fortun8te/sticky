@@ -551,6 +551,9 @@ final class NotchViewModel: NSObject, ObservableObject {
     /// an interleaved incoming transfer can forge.
     var onSendSucceeded: (([URL]) -> Void)?
     var onClipboardSyncChanged: ((Bool) -> Void)?
+    /// The app layer uses this to open the inbound pairing window only while a
+    /// person is actually looking at the pairing affordance.
+    var onExpandedChanged: ((Bool) -> Void)?
 
     // MARK: - The Slot (manual clipboard pocket)
     @Published var slotText: String {
@@ -902,6 +905,10 @@ final class NotchViewModel: NSObject, ObservableObject {
 
     private var lastCollapseAt = Date.distantPast
 
+    private func announceExpansion() {
+        onExpandedChanged?(isExpanded)
+    }
+
     func toggleExpanded() {
         // Click-away collapse can be immediately followed by the same click
         // landing on the collapsed island — don't reopen from that one event.
@@ -912,6 +919,7 @@ final class NotchViewModel: NSObject, ObservableObject {
             withMotionAnimation(.opening) {
                 isExpanded = true
             }
+            announceExpansion()
             hapticService?.fire(.tick)
         }
     }
@@ -926,6 +934,7 @@ final class NotchViewModel: NSObject, ObservableObject {
             forceCollapseIfHovering()
         }
         withMotionAnimation(.closing) { isExpanded = false }
+        announceExpansion()
     }
 
     /// Immediate, timer-free collapse used by the hover watchdog. If macOS
