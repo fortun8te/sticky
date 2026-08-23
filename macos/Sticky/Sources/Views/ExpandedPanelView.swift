@@ -123,6 +123,30 @@ struct FileTray: View {
             tray
 
             if !viewModel.pendingTransfers.isEmpty {
+                HStack(spacing: DS.Space.xs + 2) {
+                    Text("WAITING FOR PC")
+                        .font(DS.Type_.title(11))
+                        .kerning(0.5)
+                        .foregroundStyle(DS.Colors.textTertiary)
+                    Text("\(viewModel.pendingTransfers.count)")
+                        .font(DS.Type_.body(11))
+                        .monospacedDigit()
+                        .foregroundStyle(DS.Colors.textFaint)
+                    Spacer()
+                    Button { viewModel.clearQueue() } label: {
+                        Text("Clear all")
+                            .font(DS.Type_.body(11))
+                            .foregroundStyle(DS.Colors.textSecondary)
+                            .padding(.horizontal, DS.Space.s)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(DS.Colors.surface))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Empty the queue and cancel anything in flight")
+                }
+                .padding(.top, DS.Space.xs)
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: DS.Space.xs + 2) {
                         ForEach(viewModel.pendingTransfers) { transfer in

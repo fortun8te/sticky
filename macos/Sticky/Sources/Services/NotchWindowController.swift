@@ -28,8 +28,8 @@ enum NotchLayout {
     /// what it is actually showing. A fixed depth left a tall empty box under
     /// a single word. The sensor reads the same function, so the live region
     /// always matches what is drawn.
-    static let hoverIslandDepth: CGFloat = 46
-    static let hoverEmptyDepth: CGFloat = 22
+    static let hoverIslandDepth: CGFloat = 58
+    static let hoverEmptyDepth: CGFloat = 42
 
     static func hoverDepth(hasContent: Bool) -> CGFloat {
         hasContent ? hoverIslandDepth : hoverEmptyDepth

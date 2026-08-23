@@ -173,7 +173,7 @@ struct NotchView: View {
                             }
                             islandContent
                                 .padding(.horizontal, DS.Space.l + 2)
-                                .padding(.bottom, DS.Space.s)
+                                .padding(.bottom, DS.Space.xs)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -312,7 +312,8 @@ struct NotchView: View {
         } else if !viewModel.hoverPreviewURLs.isEmpty {
             waitingPreview
         } else {
-            Color.clear
+            hoverLabel
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -329,24 +330,36 @@ struct NotchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// What's in the drawer, as thumbnails. No count, no copy.
+    /// What's in the drawer, plus a line saying what the notch is for. The
+    /// thumbnails alone were wordless to the point of being a guess.
     private var waitingPreview: some View {
-        HStack(spacing: DS.Space.xs + 2) {
-            ForEach(viewModel.hoverPreviewURLs, id: \.path) { url in
-                FileThumbnail(
-                    url: url,
-                    side: 26,
-                    cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 4),
-                    contentMode: .fill,
-                    missingIsExpected: true
-                )
+        VStack(spacing: 3) {
+            HStack(spacing: DS.Space.xs + 2) {
+                ForEach(viewModel.hoverPreviewURLs, id: \.path) { url in
+                    FileThumbnail(
+                        url: url,
+                        side: 24,
+                        cornerRadius: DS.Radius.concentric(in: DS.Radius.chip, inset: 5),
+                        contentMode: .fill,
+                        missingIsExpected: true
+                    )
+                }
             }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.down")
-                .font(DS.Type_.symbol(10, matching: .semibold))
-                .foregroundStyle(DS.Colors.textTertiary)
+            hoverLabel
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var hoverLabel: some View {
+        HStack(spacing: DS.Space.xs + 1) {
+            Image(systemName: "arrow.down.to.line")
+                .font(DS.Type_.symbol(10, matching: .medium))
+                .foregroundStyle(DS.Colors.control)
+            Text("Drop to send · click to open")
+                .font(DS.Type_.caption())
+                .foregroundStyle(DS.Colors.textTertiary)
+                .fixedSize()
+        }
     }
 
     /// Says what it DOES and how big it is — never what you copied. The bezel

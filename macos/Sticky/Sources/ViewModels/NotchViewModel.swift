@@ -22,6 +22,11 @@ final class NotchViewModel: NSObject, ObservableObject {
     }
 
     private var hoverTimer: DispatchWorkItem?
+    private var springOpenTimer: DispatchWorkItem?
+    /// Rest on the notch this long and the shelf opens itself, the way the Dock
+    /// springs a folder open. Long enough that passing the cursor over the
+    /// notch on the way to the menu bar never triggers it.
+    static let springOpenDelay: TimeInterval = 0.9
     private var armedTimer: DispatchWorkItem?
     private var autoResetTimer: DispatchWorkItem?
     private var transferTask: Task<Void, Never>?
@@ -116,6 +121,7 @@ final class NotchViewModel: NSObject, ObservableObject {
     // MARK: - DropDelegate
 
     func dragDidEnter() {
+        cancelSpringOpen()
         guard case .idle = state else { return }
         dropTargeting = true
         hoverTimer?.cancel()
@@ -138,10 +144,25 @@ final class NotchViewModel: NSObject, ObservableObject {
     func refreshPasteboardPreview() {
         let pasteboard = NSPasteboard.general
         let present = Set(pasteboard.types ?? [])
-        guard present.isDisjoint(with: Self.concealedTypes),
-              let text = pasteboard.string(forType: .string)?
-                  .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else {
+        guard present.isDisjoint(with: Self.concealedTypes) else {
+            pasteboardPreview = nil
+            return
+        }
+
+        // An image or a file on the clipboard counts. Gating this on
+        // `string(forType:)` meant copying a screenshot showed the notch
+        // nothing at all, and there was no way to send it from hover.
+        if pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) {
+            pasteboardPreview = "Image"
+            return
+        }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            pasteboardPreview = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) files"
+            return
+        }
+        guard let text = pasteboard.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             pasteboardPreview = nil
             return
         }
@@ -185,36 +206,35 @@ final class NotchViewModel: NSObject, ObservableObject {
         return characters == 1 ? "1 character" : "\(characters) characters"
     }
 
-    /// One click, no shelf: send what's on the clipboard to the PC and keep a
-    /// copy in Sticky's own clipboard history.
+    /// One click, no shelf: take whatever is on the clipboard into Sticky and
+    /// send it. Routed through the typed clipboard so an image goes as an
+    /// image — the old version read `.string` and could only ever send text.
     func sendClipboardNow() {
         refreshPasteboardPreview()
-        let pasteboard = NSPasteboard.general
-        guard pasteboardPreview != nil,
-              let text = pasteboard.string(forType: .string)?
-                  .trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty else {
+        guard pasteboardPreview != nil else {
             showFailure(reason: "Nothing on the clipboard")
             return
         }
-        // Kept in Sticky's own clipboard either way — that is the point of it
-        // being a separate clipboard.
-        addStickyClipboardText(text)
-        hapticService?.fire(.lock)
-
-        // Don't claim a send that cannot happen. The optimistic version
-        // flashed "Sent" at a user with no PC on the network.
-        guard peerReachable else {
-            showFailure(reason: "No PC nearby · kept in clipboard")
+        guard let clipboard = clipboardService else {
+            showFailure(reason: "Clipboard unavailable")
             return
         }
-        clipboardSender?(text)
-        showSuccess(count: 1)
+        guard let item = clipboard.takeFromSystemClipboard() else {
+            showFailure(reason: clipboard.lastError ?? "Nothing on the clipboard")
+            return
+        }
+        hapticService?.fire(.lock)
+        sendClip(item)
     }
 
     func setPointerHover(_ hovering: Bool) {
         pointerIsOver = hovering
-        if hovering { refreshPasteboardPreview() }
+        if hovering {
+            refreshPasteboardPreview()
+            scheduleSpringOpen()
+        } else {
+            cancelSpringOpen()
+        }
         guard !isExpanded else { return }
         cancelHoverReset()
 
@@ -366,6 +386,35 @@ final class NotchViewModel: NSObject, ObservableObject {
     var hoverPreviewURLs: [URL] {
         let queued = pendingTransfers.flatMap { $0.items.map(\.url) }
         return Array((shelfFiles.map(\.url) + queued).prefix(4))
+    }
+
+    private func scheduleSpringOpen() {
+        cancelSpringOpen()
+        // Never mid-drag: the panel appearing under a dragged file would move
+        // the drop target out from under it.
+        guard !isExpanded, !dropTargeting else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pointerIsOver, !self.isExpanded, !self.dropTargeting,
+                  case .hover = self.state else { return }
+            // The panel opening without a click needs to be felt, or it reads
+            // as the machine doing something you didn't ask for. `.lock` is the
+            // alignment pattern — the same one a drag uses when it catches.
+            self.hapticService?.fire(.lock)
+            self.toggleExpanded()
+        }
+        springOpenTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.springOpenDelay, execute: work)
+    }
+
+    private func cancelSpringOpen() {
+        springOpenTimer?.cancel()
+        springOpenTimer = nil
+    }
+
+    /// Empty the whole queue in one go, cancelling anything in flight.
+    func clearQueue() {
+        clearPendingTransfers()
+        hapticService?.fire(.tick)
     }
 
     var canKeepArmedBatch: Bool { !armedBatch.isEmpty }
@@ -1195,26 +1244,22 @@ extension NotchViewModel {
     }
 
     /// Explicit paste — the drawer never reads the system clipboard on its own.
+    ///
+    /// Routed through the typed clipboard so an image arrives as an IMAGE and
+    /// formatted text keeps its RTF and HTML. Reading `NSPasteboard.string`
+    /// here is what made a pasted screenshot land as the text "Screenshot
+    /// 2026-08-18 at 2…" — its filename, not its pixels.
     func pasteIntoDrawer() {
-        let pasteboard = NSPasteboard.general
-        let present = Set(pasteboard.types ?? [])
-        guard present.isDisjoint(with: Self.concealedTypes) else {
-            showFailure(reason: "That clipboard item is marked private")
+        guard let clipboard = clipboardService else {
+            showFailure(reason: "Clipboard unavailable")
             return
         }
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-           !urls.isEmpty {
-            handleDroppedFiles(urls)
+        guard let item = clipboard.takeFromSystemClipboard() else {
+            showFailure(reason: clipboard.lastError ?? "Nothing on the clipboard")
             return
         }
-        if let image = NSImage(pasteboard: pasteboard) {
-            writeSlot(image: image)
-            noteInteraction()
-            return
-        }
-        if let text = pasteboard.string(forType: .string) {
-            putText(text)
-        }
+        hapticService?.fire(.tick)
+        sendClip(item)
     }
 
     func sendClip(_ item: StickyClipItem) {

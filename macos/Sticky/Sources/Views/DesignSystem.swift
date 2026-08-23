@@ -170,24 +170,38 @@ enum DS {
     }
 }
 
-/// The desktop, blurred, behind the panel.
+/// The desktop behind the panel, in real Liquid Glass.
 ///
-/// Plan §10.2 draws the line precisely: the surface that TOUCHES the bezel is
-/// flat #000 — a material there reads as a grey rectangle glued to black
-/// hardware — but the panel that genuinely floats over the desktop is allowed
-/// to be a material. So the top of the shelf stays opaque and only the lower
-/// edge, which is over wallpaper rather than bezel, becomes glass.
+/// macOS 26 ships `NSGlassEffectView` — the actual system material, with its
+/// own refraction, specular edge and live update behaviour. Everything before
+/// this was an `NSVisualEffectView` approximation: a flat dark blur that had to
+/// be fought with a gradient to look like anything, and which visibly lagged
+/// when the content behind it moved.
+///
+/// Plan §10.2 still draws the line: the surface TOUCHING the bezel is flat
+/// #000, because a material there reads as a grey rectangle glued to black
+/// hardware. Only the part that genuinely floats over the desktop is glass.
 struct DesktopGlass: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.isEmphasized = false
-        return view
+    func makeNSView(context: Context) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            // `.clear` rather than `.regular`: this sits over wallpaper, not
+            // over app chrome, and regular is too milky to see through.
+            glass.style = .clear
+            // Cornering is handled by the SwiftUI clip so the top edge can stay
+            // square against the bezel while the bottom rounds.
+            glass.cornerRadius = 0
+            return glass
+        }
+        let fallback = NSVisualEffectView()
+        fallback.material = .hudWindow
+        fallback.blendingMode = .behindWindow
+        fallback.state = .active
+        fallback.isEmphasized = false
+        return fallback
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 extension DS {
@@ -201,11 +215,14 @@ extension DS {
     static var panelVeil: LinearGradient {
         LinearGradient(
             stops: [
+                // Solid through everything you actually read. The earlier
+                // version started opening at 28% and the middle of the panel
+                // went transparent under the text.
                 .init(color: .black, location: 0),
-                .init(color: .black, location: 0.34),
-                .init(color: .black.opacity(0.78), location: 0.58),
-                .init(color: .black.opacity(0.42), location: 0.80),
-                .init(color: .black.opacity(0.14), location: 1)
+                .init(color: .black, location: 0.74),
+                // Then a short hem that turns to glass at the very bottom.
+                .init(color: .black.opacity(0.72), location: 0.88),
+                .init(color: .black.opacity(0.32), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
