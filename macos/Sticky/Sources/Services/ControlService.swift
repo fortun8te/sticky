@@ -11,12 +11,22 @@ final class ControlService {
     private static let maxBodyBytes = 1_048_576
     private static let maxHistory = 100
     private static let maxTransfers = 100
+    private static let activeStates: Set<String> = ["queued", "sending"]
+    // Comfortably longer than TransferService's own 600s idle timeout, so only
+    // a send that can no longer finish is treated as stale.
+    private static let staleTransferTimeout: TimeInterval = 900
+    private nonisolated static let connectionTimeout: TimeInterval = 30
+    private static let initialRestartDelay: TimeInterval = 1
+    private static let maxRestartDelay: TimeInterval = 30
 
     private let discovery: DiscoveryService
     private let transfer: TransferService
     private let clipboard: ClipboardService
     private let controlToken: String
     private var listener: NWListener?
+    private var restartTask: Task<Void, Never>?
+    private var restartDelay: TimeInterval = ControlService.initialRestartDelay
+    private var hasReportedListenerFailure = false
     private var tasks: [String: Task<Void, Never>] = [:]
     private var records: [String: ControlTransfer] = [:]
     private var errors: [ControlError] = []
@@ -52,18 +62,29 @@ final class ControlService {
 
     func start() {
         guard listener == nil, let port = NWEndpoint.Port(rawValue: Self.port) else { return }
+        restartTask?.cancel()
+        restartTask = nil
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
+        // A quick relaunch leaves 53318 in TIME_WAIT; without reuse the bridge
+        // stays unbindable for the rest of the session.
+        parameters.allowLocalEndpointReuse = true
         guard let listener = try? NWListener(using: parameters) else {
-            recordError("Sticky's local Codex bridge could not start.", transferID: nil)
+            reportListenerFailure("Sticky's local Codex bridge could not start.")
+            scheduleRestart()
             return
         }
         listener.newConnectionHandler = { [weak self] connection in
             self?.receive(connection)
         }
-        listener.stateUpdateHandler = { [weak self] state in
-            if case .failed = state {
-                Task { @MainActor in self?.recordError("Sticky's local Codex bridge stopped unexpectedly.", transferID: nil) }
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            switch state {
+            case .ready:
+                Task { @MainActor in self?.listenerDidBecomeReady(listener) }
+            case .failed, .cancelled:
+                Task { @MainActor in self?.listenerDidStop(listener) }
+            default:
+                break
             }
         }
         self.listener = listener
@@ -71,14 +92,58 @@ final class ControlService {
     }
 
     func stop() {
+        restartTask?.cancel()
+        restartTask = nil
         tasks.values.forEach { $0.cancel() }
         tasks.removeAll()
         listener?.cancel()
         listener = nil
     }
 
+    private func listenerDidBecomeReady(_ ready: NWListener?) {
+        guard let current = listener, current === ready else { return }
+        restartDelay = Self.initialRestartDelay
+        hasReportedListenerFailure = false
+    }
+
+    /// The bridge is the MCP client's only way in — and the only way to read
+    /// recorded errors — so a dead listener must not outlive the failure that
+    /// killed it. Drop it and rebind on a backoff.
+    private func listenerDidStop(_ stopped: NWListener?) {
+        guard let current = listener, current === stopped else { return }
+        current.cancel()
+        listener = nil
+        reportListenerFailure("Sticky's local Codex bridge stopped unexpectedly.")
+        scheduleRestart()
+    }
+
+    private func scheduleRestart() {
+        restartTask?.cancel()
+        let delay = restartDelay
+        restartDelay = min(delay * 2, Self.maxRestartDelay)
+        restartTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.start()
+        }
+    }
+
+    private func reportListenerFailure(_ message: String) {
+        // Only the first failure of a streak is recorded: a port that stays
+        // unbindable would otherwise flush every real error out of the log.
+        guard !hasReportedListenerFailure else { return }
+        hasReportedListenerFailure = true
+        recordError(message, transferID: nil)
+    }
+
     private nonisolated func receive(_ connection: NWConnection) {
-        connection.start(queue: DispatchQueue(label: "sticky.control.connection"))
+        let queue = DispatchQueue(label: "sticky.control.connection")
+        connection.start(queue: queue)
+        // Every exchange here is local and immediate, so a caller that opens a
+        // socket and never finishes its request is stalled: reclaim it rather
+        // than pin the connection for the life of the process. Cancelling an
+        // already-answered connection is a no-op.
+        queue.asyncAfter(deadline: .now() + Self.connectionTimeout) { connection.cancel() }
         receiveBody(connection, buffered: Data())
     }
 
@@ -123,7 +188,10 @@ final class ControlService {
             send(connection, status: 401, body: ["error": "unauthorized"])
             return
         }
-        let components = request.target.split(separator: "?", maxSplits: 1).map(String.init)
+        // Keeping empty subsequences means a target of "?" or "?a=1" still
+        // yields a path element; dropping them left components empty and the
+        // subscript below trapped the process.
+        let components = request.target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
         let path = components[0]
         let query = components.count > 1 ? queryValues(components[1]) : [:]
         guard path.hasPrefix("/api/v1/control") else {
@@ -173,7 +241,11 @@ final class ControlService {
             send(connection, status: 400, body: ["error": "kind must be files or text"]); return
         }
         let peerID = body["peerId"] as? String
-        let peer = peerID.flatMap { id in discovery.peers.first { $0.id == id } } ?? (peerID == nil ? discovery.peers.first : nil)
+        // With no explicit peerId, fall back to the same paired-first choice
+        // the notch makes — not whichever unauthenticated announcement happens
+        // to sort first.
+        let peer = peerID.flatMap { id in discovery.peers.first { $0.id == id } }
+            ?? (peerID == nil ? transfer.defaultTarget() : nil)
         guard let peer else {
             send(connection, status: 409, body: ["error": "no nearby Sticky device"]); return
         }
@@ -270,13 +342,29 @@ final class ControlService {
     }
 
     private func pruneRecords() {
+        // A peer that vanishes mid-send can wedge a record in "sending" forever
+        // — with no completion to prune on, /transfers would grow for the life
+        // of the process — so stale in-flight records expire too.
+        let cutoff = Date().addingTimeInterval(-Self.staleTransferTimeout)
+        let stale = records.values.filter { Self.activeStates.contains($0.state) && $0.updatedAt < cutoff }
+        stale.forEach { drop($0.id) }
         guard records.count > Self.maxTransfers else { return }
-        let removable = records.values
-            .filter { !["queued", "sending"].contains($0.state) }
-            .sorted { $0.updatedAt < $1.updatedAt }
-        for record in removable.prefix(records.count - Self.maxTransfers) {
-            records[record.id] = nil
+        // Finished records are evicted first, but the cap holds regardless of
+        // state so no caller can grow this map without bound.
+        var evictable = records.values.sorted { lhs, rhs in
+            let lhsActive = Self.activeStates.contains(lhs.state)
+            if lhsActive != Self.activeStates.contains(rhs.state) { return !lhsActive }
+            return lhs.updatedAt < rhs.updatedAt
         }
+        while records.count > Self.maxTransfers, !evictable.isEmpty {
+            drop(evictable.removeFirst().id)
+        }
+    }
+
+    private func drop(_ id: String) {
+        tasks[id]?.cancel()
+        tasks[id] = nil
+        records[id] = nil
     }
 
     func recordNativeError(_ message: String) {
@@ -384,11 +472,13 @@ final class ControlService {
     }
 
     private func queryValues(_ raw: String) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: raw.split(separator: "&").compactMap { pair in
+        // A repeated key is a caller's choice, not a protocol violation, and
+        // must never trap the process. Last value wins.
+        raw.split(separator: "&").reduce(into: [String: String]()) { result, pair in
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
-            guard let key = parts.first?.removingPercentEncoding else { return nil }
-            return (key, parts.count > 1 ? parts[1].removingPercentEncoding ?? "" : "")
-        })
+            guard let key = parts.first?.removingPercentEncoding else { return }
+            result[key] = parts.count > 1 ? parts[1].removingPercentEncoding ?? "" : ""
+        }
     }
 
     private nonisolated func send(_ connection: NWConnection, status: Int = 200, body: Any) {

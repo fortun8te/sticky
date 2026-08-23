@@ -1,62 +1,34 @@
 import AppKit
 import SwiftUI
 
-/// A normal, closable utility panel that hosts the visible shelf. It never
-/// steals focus on launch and can be reopened from the menu bar or notch.
+/// Quick Look for shelf items.
+///
+/// This class used to own a second, free-standing shelf window duplicating the
+/// notch panel. That surface is gone — there is one shelf and it lives in the
+/// notch. What remains is a transient preview window, opened on demand and
+/// closed by the user, which is the one case where a real window is warranted.
 @MainActor
 final class ShelfWindowController {
     static let shared = ShelfWindowController()
 
-    private var window: NSWindow?
-    private weak var viewModel: NotchViewModel?
-
-
-    func show(viewModel: NotchViewModel) {
-        self.viewModel = viewModel
-        if window == nil {
-            makeWindow(viewModel: viewModel)
-        }
-        NSApp.activate(ignoringOtherApps: false)
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    func toggle(viewModel: NotchViewModel) {
-        if let window, window.isVisible {
-            window.orderOut(nil)
-        } else {
-            show(viewModel: viewModel)
-        }
-    }
+    private init() {}
 
     func previewURLs(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
-                           styleMask: [.titled, .closable],
-                           backing: .buffered, defer: false)
-        win.title = "Quick Look"
-        win.isReleasedWhenClosed = false
-        win.contentView = NSHostingView(rootView: PreviewListView(urls: urls))
-        NSApp.activate(ignoringOtherApps: true)
-        win.center()
-        win.makeKeyAndOrderFront(nil)
-    }
-
-    private func makeWindow(viewModel: NotchViewModel) {
-        let hosting = NSHostingView(rootView: ShelfView(viewModel: viewModel))
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 460),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Sticky Shelf"
+        window.title = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items"
         window.isReleasedWhenClosed = false
-        window.contentView = hosting
+        window.contentView = NSHostingView(rootView: PreviewListView(urls: urls))
+        NSApp.activate(ignoringOtherApps: true)
         window.center()
-        self.window = window
+        window.makeKeyAndOrderFront(nil)
     }
 }
-
 
 private struct PreviewListView: View {
     let urls: [URL]
@@ -66,7 +38,7 @@ private struct PreviewListView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(url.lastPathComponent)
                     .font(.headline)
-                if ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(url.pathExtension.lowercased()),
+                if ["png", "jpg", "jpeg", "heic", "gif", "webp", "tiff"].contains(url.pathExtension.lowercased()),
                    let image = NSImage(contentsOf: url) {
                     Image(nsImage: image)
                         .resizable()

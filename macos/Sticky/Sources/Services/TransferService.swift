@@ -17,6 +17,9 @@ final class TransferService {
     private var pairingPIN = PairingService.shared.generatePin()
     private var pairingPINExpiresAt = Date().addingTimeInterval(5 * 60)
     private var pairingPINAttempts = 0
+    private var pairingPINLockedUntil = Date.distantPast
+    private var pairingWindowEverOpened = false
+    private var pairingWindowExpiresAt = Date.distantPast
 
     var pairingCode: String {
         lock.lock()
@@ -63,6 +66,8 @@ final class TransferService {
     private var certificate: SecCertificate?
     private var identity: SecIdentity?
     private var protocolIdentity: sec_identity_t?
+    private var liveConnections: [ObjectIdentifier: NWConnection] = [:]
+    private var connectionTimers: [ObjectIdentifier: DispatchSourceTimer] = [:]
     private var timeoutTimer: DispatchSourceTimer?
     private var restartTimer: DispatchSourceTimer?
     private var isRunning = false
@@ -75,6 +80,12 @@ final class TransferService {
     private static let maximumIncomingSessions = 3
     private static let maximumIncomingFiles = 100
     private static let maximumIncomingBytes: Int64 = 2 * 1024 * 1024 * 1024
+    private static let maximumConcurrentConnections = 32
+    private static let requestReadTimeout: TimeInterval = 30
+    private static let uploadIdleTimeout: TimeInterval = 60
+    private static let pairingFailureThreshold = 5
+    private static let pairingLockoutBase: TimeInterval = 30
+    private static let pairingLockoutCap: TimeInterval = 5 * 60
 
     init(discovery: DiscoveryService) {
         self.discovery = discovery
@@ -128,6 +139,14 @@ final class TransferService {
             listener.start(queue: workerQueue)
             scheduleTimeoutTimer()
         } catch {
+            // Without this the service stays flagged as running after a failed
+            // launch, so the retry below trips `guard !isRunning` and returns
+            // instantly — the Mac would advertise itself but never listen again.
+            lock.lock()
+            isRunning = false
+            listener?.cancel()
+            listener = nil
+            lock.unlock()
             reportFailure(error.localizedDescription)
             scheduleRestart(after: 5)
         }
@@ -150,8 +169,14 @@ final class TransferService {
         restartTimer = nil
         let sessions = activeSessions
         activeSessions.removeAll()
+        let connections = Array(liveConnections.values)
+        liveConnections.removeAll()
+        let deadlines = Array(connectionTimers.values)
+        connectionTimers.removeAll()
         lock.unlock()
 
+        deadlines.forEach { $0.cancel() }
+        connections.forEach { $0.cancel() }
         sessions.values.forEach { session in
             session.uploads.values.forEach { upload in
                 try? upload.fileHandle?.close()
@@ -166,8 +191,25 @@ final class TransferService {
 
     // MARK: - Client
 
+    /// The peer a send goes to when the user hasn't named one.
+    ///
+    /// Discovery is unauthenticated, so any LAN host can announce itself as a
+    /// Windows device under a name that happens to sort first. Choosing by
+    /// browse order aims the user's file at that stranger — and tells them to
+    /// pair with it — while their real, already-paired PC sits idle. Trust
+    /// therefore outranks announcement order; unpaired peers stay as a last
+    /// resort so a first send on a fresh install can still lead to pairing.
+    func defaultTarget() -> StickyDevice? {
+        let peers = discovery.peers
+        let paired = peers.filter { pairing.isPeerPaired($0.id) }
+        return paired.first(where: { $0.platform == .win })
+            ?? paired.first
+            ?? peers.first(where: { $0.platform == .win })
+            ?? peers.first
+    }
+
     func sendFiles(_ urls: [URL], progress: @escaping (Double) -> Void) async throws -> Bool {
-        guard let peer = discovery.peers.first(where: { $0.platform == .win }) ?? discovery.peers.first else {
+        guard let peer = defaultTarget() else {
             throw TransferError.noPeer
         }
         return try await sendFiles(urls, to: peer, progress: progress)
@@ -347,6 +389,9 @@ final class TransferService {
         guard let authorizationToken = paired.authorizationToken else {
             throw TransferError.pairingFailed
         }
+        // Nothing is pinned or stored until the answer itself has been checked:
+        // a bare HTTP 200 from an unknown LAN host is not evidence of pairing.
+        try validatePairResponse(paired, pin: pin, reverseToken: reverseToken, authorizationToken: authorizationToken)
         try pairing.pinPeer(deviceID: peer.id, fingerprint: paired.fingerprint)
         try pairing.storeOutgoingAuthorizationToken(authorizationToken, for: peer.id)
         try pairing.storeIncomingAuthorizationToken(reverseToken, for: peer.id)
@@ -361,7 +406,57 @@ final class TransferService {
         lock.unlock()
     }
 
-    private func requestPair(peer: StickyDevice, pin: String, reverseToken: String) async throws -> (fingerprint: String, authorizationToken: String?) {
+    private struct PairResponse {
+        /// SHA-256 of the certificate the peer actually presented on this TLS
+        /// connection — the value we would pin.
+        var fingerprint: String
+        /// The fingerprint the peer claims in its JSON body, when it sends one.
+        var claimedFingerprint: String?
+        var authorizationToken: String?
+        var pinProof: String?
+        var paired: Bool
+    }
+
+    /// Proof that the responder knew the pairing PIN, so a rogue host that
+    /// simply answers 200 cannot get its certificate pinned. The return token is
+    /// freshly random per attempt, so it doubles as the challenge nonce.
+    private static let pairProofContext = "sticky-pair-response-v1"
+
+    private static func pairProof(pin: String, responderFingerprint: String, returnToken: String) -> String {
+        var message = Data(pairProofContext.utf8)
+        message.append(Data(responderFingerprint.lowercased().utf8))
+        message.append(Data(returnToken.lowercased().utf8))
+        let code = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: Data(pin.utf8)))
+        return code.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func validatePairResponse(_ response: PairResponse, pin: String, reverseToken: String, authorizationToken: String) throws {
+        // Structural floor, enforced against every peer: the answer has to look
+        // like a token this peer minted, not an echo of what we just sent it and
+        // not a filler string.
+        guard response.paired,
+              Self.isValidChecksum(authorizationToken),
+              Set(authorizationToken).count > 1,
+              !constantTimeEquals(authorizationToken, reverseToken),
+              !constantTimeEquals(authorizationToken, response.fingerprint),
+              !constantTimeEquals(authorizationToken, serverFingerprint()) else {
+            throw TransferError.pairingRejected
+        }
+        // A peer that names its own fingerprint must name the one it presented.
+        if let claimed = response.claimedFingerprint,
+           !constantTimeEquals(claimed.lowercased(), response.fingerprint.lowercased()) {
+            throw TransferError.pairingRejected
+        }
+        // Peers that speak the proof extension are held to it. Peers that do not
+        // send one (protocol v1 Windows) only clear the structural floor above.
+        guard let proof = response.pinProof else { return }
+        let expected = Self.pairProof(pin: pin, responderFingerprint: response.fingerprint, returnToken: reverseToken)
+        guard constantTimeEquals(proof.lowercased(), expected) else {
+            throw TransferError.pairingProofFailed
+        }
+    }
+
+    private func requestPair(peer: StickyDevice, pin: String, reverseToken: String) async throws -> PairResponse {
         let payload: [String: Any] = [
             "pin": pin,
             "returnToken": reverseToken,
@@ -388,9 +483,14 @@ final class TransferService {
         guard let fingerprint = delegate.lastServerFingerprint else {
             throw TransferError.pairingFailed
         }
-        let token = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-            .flatMap { $0["token"] as? String }
-        return (fingerprint, token)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return PairResponse(
+            fingerprint: fingerprint,
+            claimedFingerprint: object?["fingerprint"] as? String,
+            authorizationToken: object?["token"] as? String,
+            pinProof: object?["pinProof"] as? String,
+            paired: object?["paired"] as? Bool ?? false
+        )
     }
 
     private func makeClientSession(expectedFingerprint: String?) -> URLSession {
@@ -483,16 +583,63 @@ final class TransferService {
     // MARK: - HTTPS server
 
     private func handleConnection(_ connection: NWConnection) {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        let accepted = liveConnections.count < Self.maximumConcurrentConnections
+        if accepted { liveConnections[key] = connection }
+        lock.unlock()
+
         connection.start(queue: workerQueue)
+        guard accepted else {
+            // Refusing beats queueing: an unbounded accept backlog is exactly how
+            // a stalled client farm exhausts this process's file descriptors and
+            // starves a real transfer.
+            send(connection, status: 503, body: Data())
+            return
+        }
+        armDeadline(connection, seconds: Self.requestReadTimeout)
         receiveHeader(connection, buffer: Data())
+    }
+
+    /// Every connection is on a clock. A peer that opens a socket and then goes
+    /// quiet — no bytes, or a huge Content-Length it never sends — would
+    /// otherwise sit in `receive` forever holding a descriptor and its buffer.
+    private func armDeadline(_ connection: NWConnection, seconds: TimeInterval) {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        if let existing = connectionTimers[key] {
+            existing.schedule(deadline: .now() + seconds)
+            lock.unlock()
+            return
+        }
+        let timer = DispatchSource.makeTimerSource(queue: workerQueue)
+        timer.schedule(deadline: .now() + seconds)
+        timer.setEventHandler { [weak self] in
+            self?.releaseConnection(connection)
+            connection.cancel()
+        }
+        connectionTimers[key] = timer
+        lock.unlock()
+        timer.resume()
+    }
+
+    private func releaseConnection(_ connection: NWConnection) {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        let timer = connectionTimers.removeValue(forKey: key)
+        liveConnections.removeValue(forKey: key)
+        lock.unlock()
+        timer?.cancel()
     }
 
     private func receiveHeader(_ connection: NWConnection, buffer: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
             guard let self, error == nil else {
+                self?.releaseConnection(connection)
                 connection.cancel()
                 return
             }
+            self.armDeadline(connection, seconds: Self.requestReadTimeout)
             var buffer = buffer
             if let data { buffer.append(data) }
             guard buffer.count <= 32 * 1024 else {
@@ -506,6 +653,7 @@ final class TransferService {
                 return
             }
             if complete {
+                self.releaseConnection(connection)
                 connection.cancel()
                 return
             }
@@ -575,9 +723,11 @@ final class TransferService {
         }
         connection.receive(minimumIncompleteLength: 1, maximumLength: min(Int(remaining), 64 * 1024)) { [weak self] data, _, complete, error in
             guard let self, error == nil, let data else {
+                self?.releaseConnection(connection)
                 connection.cancel()
                 return
             }
+            self.armDeadline(connection, seconds: Self.requestReadTimeout)
             body.append(data)
             guard body.count <= limit else {
                 self.send(connection, status: 413, body: Data())
@@ -605,7 +755,7 @@ final class TransferService {
     }
 
     private func handlePair(_ body: Data, connection: NWConnection) {
-        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+        guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
               let pin = object["pin"] as? String,
               let device = object["device"] as? [String: Any],
               let senderID = device["id"] as? String,
@@ -617,15 +767,27 @@ final class TransferService {
             send(connection, status: 401, body: Data())
             return
         }
-        pairedPeers[senderID] = senderFingerprint
         try? pairing.pinPeer(deviceID: senderID, fingerprint: senderFingerprint)
         try? pairing.storeOutgoingAuthorizationToken(returnToken, for: senderID)
-        let authorizationToken = (try? pairing.createIncomingAuthorizationToken(for: senderID)) ?? ""
-        if !authorizationToken.isEmpty { pairedTokens[senderID] = authorizationToken }
+        guard let authorizationToken = try? pairing.createIncomingAuthorizationToken(for: senderID),
+              !authorizationToken.isEmpty else {
+            send(connection, status: 500, body: Data())
+            return
+        }
+        // These two dictionaries are also mutated by unpairAll() and read from
+        // other worker-queue requests; the queue is concurrent, so unsynchronized
+        // Dictionary writes here are a heap corruption, not a lost update.
+        lock.lock()
+        pairedPeers[senderID] = senderFingerprint
+        pairedTokens[senderID] = authorizationToken
+        lock.unlock()
         send(connection, status: 200, body: infoJSON(extra: [
             "fingerprint": serverFingerprint(),
             "paired": true,
-            "token": authorizationToken
+            "token": authorizationToken,
+            // Lets the other side confirm we knew the PIN before it pins our
+            // certificate. Unknown fields are ignored by protocol v1 clients.
+            "pinProof": Self.pairProof(pin: pin, responderFingerprint: serverFingerprint(), returnToken: returnToken)
         ]))
     }
 
@@ -646,20 +808,53 @@ final class TransferService {
     private func consumePairingCode(_ supplied: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        if Date() >= pairingPINExpiresAt { rotatePairingCodeLocked() }
+        let now = Date()
+        // Once the app starts announcing pairing windows, guesses outside one are
+        // refused outright. Until then the previous always-listening behaviour
+        // stands, so wiring the hook up is what turns this gate on.
+        if pairingWindowEverOpened, now >= pairingWindowExpiresAt { return false }
+        guard now >= pairingPINLockedUntil else { return false }
+        if now >= pairingPINExpiresAt { rotatePairingCodeLocked() }
         guard constantTimeEquals(supplied, pairingPIN) else {
             pairingPINAttempts += 1
-            if pairingPINAttempts >= 5 { rotatePairingCodeLocked() }
+            // Back off rather than rotate. Rotating on failure handed the
+            // attacker a fresh attempt budget every five guesses and silently
+            // invalidated the code the user was reading off the menu bar.
+            if pairingPINAttempts >= Self.pairingFailureThreshold {
+                let overage = Double(pairingPINAttempts - Self.pairingFailureThreshold)
+                let delay = min(Self.pairingLockoutCap, Self.pairingLockoutBase * pow(2, overage))
+                pairingPINLockedUntil = now.addingTimeInterval(delay)
+            }
             return false
         }
         rotatePairingCodeLocked()
         return true
     }
 
+    /// Called by the UI when the user actually opens pairing, so /pair guesses
+    /// are only entertained while a person is looking at the six-digit code.
+    func beginPairingWindow(duration: TimeInterval = 5 * 60) {
+        lock.lock()
+        pairingWindowEverOpened = true
+        pairingWindowExpiresAt = Date().addingTimeInterval(duration)
+        // The user is present, so clear any backoff a prior attacker imposed.
+        pairingPINAttempts = 0
+        pairingPINLockedUntil = .distantPast
+        lock.unlock()
+    }
+
+    func endPairingWindow() {
+        lock.lock()
+        pairingWindowEverOpened = true
+        pairingWindowExpiresAt = .distantPast
+        lock.unlock()
+    }
+
     private func rotatePairingCodeLocked() {
         pairingPIN = pairing.generatePin()
         pairingPINExpiresAt = Date().addingTimeInterval(5 * 60)
         pairingPINAttempts = 0
+        pairingPINLockedUntil = .distantPast
     }
 
     private func handlePrepare(_ request: ParsedRequest, connection: NWConnection) {
@@ -743,6 +938,9 @@ final class TransferService {
         activeSessions[sessionID]?.uploads[fileID]?.fileHandle = handle
         activeSessions[sessionID]?.lastActivity = Date()
         lock.unlock()
+        // File bodies are streamed, so the short header deadline gives way to an
+        // idle deadline that every arriving chunk renews.
+        armDeadline(connection, seconds: Self.uploadIdleTimeout)
         receiveUpload(
             connection: connection,
             sessionID: sessionID,
@@ -789,9 +987,11 @@ final class TransferService {
                 // its token so the client's next retry attempt can succeed.
                 // Only close the handle; idle-timeout sweeps abandoned uploads.
                 try? handle.close()
+                self?.releaseConnection(connection)
                 connection.cancel()
                 return
             }
+            self.armDeadline(connection, seconds: Self.uploadIdleTimeout)
             if let data {
                 self.receiveUpload(connection: connection, sessionID: sessionID, fileID: fileID, handle: handle, hasher: hasher, received: received, expected: expected, initialData: data, expectedChecksum: expectedChecksum)
             } else if complete {
@@ -1032,6 +1232,7 @@ final class TransferService {
         case 413: reason = "Payload Too Large"
         case 422: reason = "Unprocessable Entity"
         case 431: reason = "Request Header Fields Too Large"
+        case 503: reason = "Service Unavailable"
         default: reason = "Internal Server Error"
         }
         var response = "HTTP/1.1 \(status) \(reason)\r\nConnection: close\r\n"
@@ -1039,7 +1240,10 @@ final class TransferService {
         response += "\r\n"
         var output = Data(response.utf8)
         if status != 204 { output.append(body) }
-        connection.send(content: output, completion: .contentProcessed { _ in
+        connection.send(content: output, completion: .contentProcessed { [weak self] _ in
+            // The deadline stays armed until the response is actually flushed, so
+            // a peer that stops reading still gets dropped.
+            self?.releaseConnection(connection)
             connection.cancel()
         })
     }
@@ -1237,6 +1441,8 @@ enum TransferError: LocalizedError {
     case noPeer
     case uploadFailed(String)
     case pairingFailed
+    case pairingRejected
+    case pairingProofFailed
     case pairingRequired(String)
     case listenerFailed
     case invalidResponse
@@ -1247,6 +1453,8 @@ enum TransferError: LocalizedError {
         case .noPeer: return "No nearby Sticky device found."
         case .uploadFailed(let path): return "Upload failed for \(path)."
         case .pairingFailed: return "Pairing failed."
+        case .pairingRejected: return "That device did not answer pairing like a Sticky app. Nothing was trusted."
+        case .pairingProofFailed: return "That device could not prove it knew the pairing code. Nothing was trusted."
         case .pairingRequired(let name): return "Pair \(name) first using its six-digit Sticky code."
         case .listenerFailed: return "Could not start the transfer listener."
         case .invalidResponse: return "The transfer peer returned an invalid response."

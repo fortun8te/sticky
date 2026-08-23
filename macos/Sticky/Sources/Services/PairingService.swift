@@ -177,7 +177,10 @@ final class PairingService {
 
         // A private app-support identity loads without touching the login
         // Keychain, so launching Sticky never asks macOS to import a key.
-        if let loaded = try? loadFileIdentity() {
+        // The throw is deliberately not swallowed: silently falling through to a
+        // fresh identity would hand peers a certificate they have not pinned.
+        // `nil` means there is nothing usable to keep, so minting one is safe.
+        if let loaded = try loadFileIdentity() {
             cachedIdentity = loaded
             return loaded
         }
@@ -552,8 +555,29 @@ final class PairingService {
 
     private func loadFileIdentity() throws -> PairingIdentity? {
         guard FileManager.default.fileExists(atPath: Self.identityFileURL.path) else { return nil }
+        let data: Data
         do {
-            let stored = try JSONDecoder().decode(StoredIdentity.self, from: Data(contentsOf: Self.identityFileURL))
+            data = try Data(contentsOf: Self.identityFileURL)
+        } catch {
+            // An unreadable file is not proof of corruption (sandbox hiccup, disk
+            // pressure). Deleting here would regenerate the certificate every
+            // peer has pinned, so surface the failure instead.
+            throw PairingError.identityUnavailable(
+                "Sticky could not read its stored identity. \(error.localizedDescription)"
+            )
+        }
+
+        let stored: StoredIdentity
+        do {
+            stored = try JSONDecoder().decode(StoredIdentity.self, from: data)
+        } catch {
+            // Only a decode failure proves the file is unusable (truncated or
+            // half-written). Discard it and let the caller mint a fresh identity.
+            try? FileManager.default.removeItem(at: Self.identityFileURL)
+            return nil
+        }
+
+        do {
             let keyType = stored.keyType == "rsa" ? kSecAttrKeyTypeRSA : kSecAttrKeyTypeECSECPrimeRandom
             let attributes: [String: Any] = [
                 kSecAttrKeyType as String: keyType,
@@ -567,7 +591,11 @@ final class PairingService {
             }
             return try makeIdentity(certificateData: stored.certificate, privateKey: privateKey)
         } catch {
-            try? FileManager.default.removeItem(at: Self.identityFileURL)
+            // The file decoded, so its bytes are intact — a failure here is a
+            // Security-framework problem, possibly transient. Never delete the
+            // identity for it: regenerating breaks every peer's pinned
+            // fingerprint and every transfer fails with an opaque TLS error
+            // until the user re-pairs on both machines.
             if let pairingError = error as? PairingError { throw pairingError }
             throw PairingError.identityUnavailable(error.localizedDescription)
         }
